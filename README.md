@@ -19,7 +19,7 @@ An Obsidian RSS reader with a daily digest and AI discussion. Self-contained: no
 
 ### 社区插件市场
 
-Obsidian 市场审核通过后，可以在「第三方插件 → 浏览」里搜索 **Under the Sun** 安装。审核期间请用下面的 BRAT 或手动安装。
+在 Obsidian 的「第三方插件 → 浏览」里搜索 **Under the Sun** 安装，或直接打开 [市场页](https://community.obsidian.md/plugins/under-the-sun)。
 
 ### BRAT
 
