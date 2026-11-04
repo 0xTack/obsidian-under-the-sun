@@ -1,0 +1,11 @@
+{
+  "id": "under-the-sun",
+  "name": "Under the Sun",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Read RSS feeds in Obsidian, generate a daily digest, and discuss any item with AI.",
+  "author": "0xTack",
+  "isDesktopOnly": false,
+  "authorUrl": "https://github.com/0xTack",
+  "fundingUrl": "https://afdian.com/a/tack123"
+}

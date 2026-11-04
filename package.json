@@ -1,0 +1,14 @@
+{
+  "name": "under-the-sun",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "devDependencies": {
+    "obsidian": "^1.4.11",
+    "esbuild": "^0.20.2",
+    "typescript": "^5.4.5"
+  }
+}
