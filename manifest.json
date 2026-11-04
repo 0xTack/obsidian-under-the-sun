@@ -2,7 +2,7 @@
   "id": "under-the-sun",
   "name": "Under the Sun",
   "version": "1.0.0",
-  "minAppVersion": "1.4.0",
+  "minAppVersion": "1.7.2",
   "description": "Read RSS feeds in Obsidian, generate a daily digest, and discuss any item with AI.",
   "author": "0xTack",
   "isDesktopOnly": false,

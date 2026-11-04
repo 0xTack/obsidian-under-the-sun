@@ -1,4 +1,5 @@
 import {
+  App,
   ItemView,
   Notice,
   Plugin,
@@ -8,7 +9,6 @@ import {
   WorkspaceLeaf,
   normalizePath,
   requestUrl,
-  setIcon,
 } from "obsidian";
 
 const VIEW_TYPE = "under-the-sun-home";
@@ -35,6 +35,17 @@ interface SunItem {
 interface StoredData {
   settings: SunSettings;
   items: SunItem[];
+}
+
+interface ChatCompletionResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+interface AppWithSettings extends App {
+  setting?: {
+    open?: () => void;
+    openTabById?: (id: string) => void;
+  };
 }
 
 const DEFAULT_SETTINGS: SunSettings = {
@@ -140,7 +151,6 @@ function parseFeed(xml: string, feedUrl: string): SunItem[] {
 export default class UnderTheSunPlugin extends Plugin {
   settings: SunSettings = DEFAULT_SETTINGS;
   items: SunItem[] = [];
-  view: SunHomeView | null = null;
   busy = false;
   private aiText = new Map<string, string>();
   private chats = new Map<string, Array<{ role: string; content: string }>>();
@@ -148,30 +158,28 @@ export default class UnderTheSunPlugin extends Plugin {
   async onload() {
     await this.loadAll();
 
-    this.registerView(VIEW_TYPE, (leaf) => {
-      this.view = new SunHomeView(leaf, this);
-      return this.view;
-    });
+    this.registerView(VIEW_TYPE, (leaf) => new SunHomeView(leaf, this));
 
     this.addRibbonIcon("sun", "打开 Under the Sun", () => {
       void this.activateView();
     });
 
-    this.addCommand({ id: "open-home", name: "打开 Under the Sun", callback: () => void this.activateView() });
+    this.addCommand({ id: "open-home", name: "打开主页", callback: () => void this.activateView() });
     this.addCommand({ id: "fetch-feeds", name: "刷新 RSS", callback: () => void this.fetchAll() });
     this.addCommand({ id: "write-digest", name: "生成今天的 RSS 日报", callback: () => void this.writeDigest() });
 
     this.addSettingTab(new SunSettingTab(this.app, this));
   }
 
-  onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE);
+  refreshView() {
+    const view = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view;
+    if (view instanceof SunHomeView) view.render();
   }
 
   async loadAll() {
     const data = (await this.loadData()) as Partial<StoredData> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings || {});
-    this.items = Array.isArray(data?.items) ? data!.items! : [];
+    this.items = Array.isArray(data?.items) ? data.items : [];
   }
 
   async saveAll() {
@@ -185,7 +193,7 @@ export default class UnderTheSunPlugin extends Plugin {
       leaf = workspace.getLeaf(true);
       await leaf.setViewState({ type: VIEW_TYPE, active: true });
     }
-    workspace.revealLeaf(leaf);
+    await workspace.revealLeaf(leaf);
   }
 
   feedUrls(): string[] {
@@ -203,7 +211,7 @@ export default class UnderTheSunPlugin extends Plugin {
     }
     if (this.busy) return;
     this.busy = true;
-    this.view?.render();
+    this.refreshView();
     let failed = 0;
     const collected: SunItem[] = [];
     for (const url of feeds) {
@@ -230,7 +238,7 @@ export default class UnderTheSunPlugin extends Plugin {
     this.items = merged.slice(0, Math.max(10, this.settings.maxItems));
     await this.saveAll();
     this.busy = false;
-    this.view?.render();
+    this.refreshView();
     new Notice(failed ? `RSS 已刷新，${failed} 个源失败` : "RSS 已刷新");
   }
 
@@ -300,11 +308,12 @@ export default class UnderTheSunPlugin extends Plugin {
           messages,
         }),
       });
-      const data = res.json as any;
-      return String(data?.choices?.[0]?.message?.content || "").trim();
-    } catch (err: any) {
+      const data = res.json as ChatCompletionResponse;
+      return String(data.choices?.[0]?.message?.content || "").trim();
+    } catch (err) {
       console.error("under-the-sun: AI 失败", err);
-      new Notice(`AI 请求失败：${err?.message || err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`AI 请求失败：${message}`);
       return "";
     }
   }
@@ -319,7 +328,7 @@ export default class UnderTheSunPlugin extends Plugin {
     ], 1400);
     if (text) {
       this.aiText.set(item.id, text);
-      this.view?.render();
+      this.refreshView();
     }
   }
 
@@ -337,7 +346,7 @@ export default class UnderTheSunPlugin extends Plugin {
     if (answer) {
       next.push({ role: "assistant", content: answer });
       this.chats.set(item.id, next.slice(-20));
-      this.view?.render();
+      this.refreshView();
     }
     return answer;
   }
@@ -381,12 +390,12 @@ export class SunHomeView extends ItemView {
     root.addClass("it-root");
 
     root.createEl("h2", { text: "Under the Sun", cls: "it-title" });
-    root.createEl("div", {
+    root.createDiv({
       cls: "it-sub",
       text: `RSS 阅读与 AI · ${this.plugin.feedUrls().length} 个来源 · ${this.plugin.items.length} 条新闻`,
     });
 
-    const actions = root.createEl("div", { cls: "it-actions" });
+    const actions = root.createDiv({ cls: "it-actions" });
     const refresh = actions.createEl("button", { text: "刷新 RSS", cls: "mod-cta" });
     refresh.disabled = this.plugin.busy;
     refresh.onclick = () => void this.plugin.fetchAll();
@@ -394,43 +403,44 @@ export class SunHomeView extends ItemView {
     digest.onclick = () => void this.plugin.writeDigest();
     const settings = actions.createEl("button", { text: "打开设置" });
     settings.onclick = () => {
-      (this.app as any).setting?.open?.();
-      (this.app as any).setting?.openTabById?.(this.plugin.manifest.id);
+      const app = this.app as AppWithSettings;
+      app.setting?.open?.();
+      app.setting?.openTabById?.(this.plugin.manifest.id);
     };
 
     if (!this.plugin.feedUrls().length) {
-      const card = root.createEl("div", { cls: "it-card" });
-      card.createEl("div", { cls: "it-section-head", text: "先添加来源" });
-      card.createEl("div", {
+      const card = root.createDiv({ cls: "it-card" });
+      card.createDiv({ cls: "it-section-head", text: "先添加来源" });
+      card.createDiv({
         cls: "it-hint",
         text: "打开 设置 → 第三方插件 → Under the Sun，在「RSS 来源」里一行填一个地址，然后点刷新。",
       });
       return;
     }
 
-    const list = root.createEl("div", { cls: "it-card" });
-    list.createEl("div", { cls: "it-section-head", text: "最新新闻" });
+    const list = root.createDiv({ cls: "it-card" });
+    list.createDiv({ cls: "it-section-head", text: "最新新闻" });
 
     for (const item of this.plugin.items.slice(0, 80)) {
-      const row = list.createEl("div", { cls: "it-news" });
-      const title = row.createEl("div", { cls: "it-news-title", text: item.title });
+      const row = list.createDiv({ cls: "it-news" });
+      const title = row.createDiv({ cls: "it-news-title", text: item.title });
       title.onclick = () => {
         if (item.link) window.open(item.link);
       };
-      row.createEl("div", {
+      row.createDiv({
         cls: "it-news-meta",
         text: `${item.feed}${item.date ? " · " + item.date.slice(0, 16).replace("T", " ") : ""}`,
       });
       if (item.summary) {
-        row.createEl("div", { cls: "it-hint", text: item.summary });
+        row.createDiv({ cls: "it-hint", text: item.summary });
       }
 
-      const actionsRow = row.createEl("div", { cls: "it-news-actions" });
+      const actionsRow = row.createDiv({ cls: "it-news-actions" });
       const aiBtn = actionsRow.createEl("button", { text: "AI 解读", cls: "it-mini" });
       aiBtn.onclick = () => void this.plugin.interpret(item);
       const chatBtn = actionsRow.createEl("button", { text: "AI 交流", cls: "it-mini" });
       chatBtn.onclick = () => {
-        const box = row.querySelector(".it-rss-chat") as HTMLElement | null;
+        const box = row.querySelector<HTMLElement>(".it-rss-chat");
         if (box) {
           box.toggleClass("is-hidden", !box.hasClass("is-hidden"));
           return;
@@ -440,25 +450,25 @@ export class SunHomeView extends ItemView {
 
       const aiText = this.plugin.getAiText(item.id);
       if (aiText) {
-        const aiBox = row.createEl("div", { cls: "it-rss-ai" });
+        const aiBox = row.createDiv({ cls: "it-rss-ai" });
         aiBox.setText(aiText);
       }
     }
   }
 
   private renderChat(row: HTMLElement, item: SunItem, hidden = false) {
-    let box = row.querySelector(".it-rss-chat") as HTMLElement | null;
+    let box = row.querySelector<HTMLElement>(".it-rss-chat");
     if (box) box.remove();
-    box = row.createEl("div", { cls: "it-rss-chat" });
+    box = row.createDiv({ cls: "it-rss-chat" });
     if (hidden) box.addClass("is-hidden");
 
-    const messages = box.createEl("div", { cls: "it-rss-messages" });
+    const messages = box.createDiv({ cls: "it-rss-messages" });
     for (const msg of this.plugin.getChat(item.id)) {
-      const line = messages.createEl("div", { cls: `it-rss-msg ${msg.role}` });
+      const line = messages.createDiv({ cls: `it-rss-msg ${msg.role}` });
       line.setText(`${msg.role === "user" ? "我" : "AI"}：${msg.content}`);
     }
 
-    const inputRow = box.createEl("div", { cls: "it-rss-input-row" });
+    const inputRow = box.createDiv({ cls: "it-rss-input-row" });
     const input = inputRow.createEl("input", { type: "text", cls: "it-input" });
     input.placeholder = "围绕这条新闻追问…";
     const send = inputRow.createEl("button", { text: "发送", cls: "mod-cta" });
@@ -484,7 +494,7 @@ export class SunHomeView extends ItemView {
 class SunSettingTab extends PluginSettingTab {
   plugin: UnderTheSunPlugin;
 
-  constructor(app: any, plugin: UnderTheSunPlugin) {
+  constructor(app: App, plugin: UnderTheSunPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -492,15 +502,15 @@ class SunSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Under the Sun 设置" });
+    new Setting(containerEl).setName("设置").setHeading();
 
-    containerEl.createEl("h3", { text: "RSS 来源" });
+    new Setting(containerEl).setName("RSS 来源").setHeading();
     new Setting(containerEl)
       .setName("RSS 地址")
       .setDesc("一行一个，支持 RSS / Atom。空行和 # 开头的行会忽略。")
       .addTextArea((text) => {
         text.inputEl.rows = 8;
-        text.inputEl.style.width = "100%";
+        text.inputEl.addClass("it-textarea");
         text
           .setPlaceholder("https://example.com/feed.xml")
           .setValue(this.plugin.settings.feeds)
@@ -531,7 +541,7 @@ class SunSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "AI" });
+    new Setting(containerEl).setName("AI").setHeading();
     new Setting(containerEl)
       .setName("启用 AI")
       .setDesc("AI 解读和 AI 交流需要打开")
@@ -577,7 +587,7 @@ class SunSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("h3", { text: "完整版" });
+    new Setting(containerEl).setName("完整版").setHeading();
     new Setting(containerEl)
       .setName("需要热榜、跟踪和判断簿？")
       .setDesc(
@@ -595,7 +605,7 @@ class SunSettingTab extends PluginSettingTab {
         .setCta()
         .onClick(async () => {
           await this.plugin.saveAll();
-          this.plugin.view?.render();
+          this.plugin.refreshView();
           new Notice("设置已保存");
         })
     );

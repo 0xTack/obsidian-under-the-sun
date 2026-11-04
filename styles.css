@@ -2192,3 +2192,7 @@ h2 .it-timeline-sort b {
   flex: 1;
   min-width: 0;
 }
+
+.it-textarea {
+  width: 100%;
+}
