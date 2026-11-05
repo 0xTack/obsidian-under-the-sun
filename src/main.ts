@@ -3019,15 +3019,6 @@ export class TrackerHomeView extends ItemView {
         : "还没有启用来源",
     });
 
-    if (intl.length) {
-      const hint = card.createEl("div", { cls: "it-hint it-sources-hint" });
-      hint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
-      hint.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
-      hint.createEl("span", { text: " 时保留 " });
-      hint.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
-      hint.createEl("span", { text: "，不会自动翻译成中文。" });
-    }
-
     const grid = card.createEl("div", { cls: "it-sources" });
     const groups: Record<string, SourceInfo[]> = { cn: [], intl: [] };
     for (const source of status.sources) {
@@ -3079,6 +3070,15 @@ export class TrackerHomeView extends ItemView {
           await this.refresh();
         };
       }
+    }
+
+    if (intl.length) {
+      const hint = card.createEl("div", { cls: "it-hint it-sources-hint" });
+      hint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
+      hint.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
+      hint.createEl("span", { text: " 时保留 " });
+      hint.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
+      hint.createEl("span", { text: "，不会自动翻译成中文。" });
     }
 
     this.renderCookies(card, status);

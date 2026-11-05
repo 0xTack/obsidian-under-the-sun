@@ -2699,7 +2699,9 @@ h2 .it-timeline-sort b {
 }
 
 .it-sources-hint {
-  margin: 8px 0 2px;
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 .it-sources-card[open] .it-sources-preview {
