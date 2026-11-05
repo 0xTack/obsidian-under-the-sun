@@ -10,6 +10,7 @@ export interface RssItem {
   score: number;
   read?: boolean;
   translated?: string;
+  translatedTitle?: string;
 }
 
 export function stripHtml(input: string): string {

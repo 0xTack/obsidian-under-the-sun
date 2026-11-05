@@ -612,6 +612,21 @@ export default class InfoTrackerPlugin extends Plugin {
     await this.app.vault.adapter.write(full, content);
   }
 
+  async writeMobileSnapshot(status: StatusPayload): Promise<void> {
+    if (this.isMobile()) return;
+    try {
+      const mobile: any = { ...status };
+      mobile.vault = "";
+      mobile.digest_path = `${status.digest_folder}/${status.today}.md`;
+      mobile.ai = { ...status.ai, enabled: false, has_key: false };
+      const rel = normalizePath(this.settings.mobileSnapshotPath);
+      await this.ensureVaultDir(this.mobileDataDir());
+      await this.vaultWrite(rel, JSON.stringify(mobile, null, 2));
+    } catch (err) {
+      console.error("under-the-sun: 写手机快照失败", err);
+    }
+  }
+
   async readMobileStatus(): Promise<StatusPayload | null> {
     try {
       const rel = normalizePath(this.settings.mobileSnapshotPath);
@@ -2619,6 +2634,7 @@ export class TrackerHomeView extends ItemView {
   async refresh() {
     await this.plugin.checkBackend();
     this.status = await this.plugin.readStatus();
+    if (this.status) await this.plugin.writeMobileSnapshot(this.status);
     this.render();
     this.updateLog(this.plugin.lastLog);
   }
@@ -2631,7 +2647,8 @@ export class TrackerHomeView extends ItemView {
       if (busy) this.startBusyTimer(bar);
       else {
         this.stopBusyTimer();
-        bar.setText("就绪");
+        bar.querySelector(".it-busy-step")?.setText("就绪");
+        bar.querySelector(".it-busy-time")?.setText("");
       }
     }
     this.contentEl.querySelectorAll("button.it-action").forEach((btn) => {
@@ -2668,12 +2685,15 @@ export class TrackerHomeView extends ItemView {
           : label === "ai-all"
             ? ["正在生成 AI 解读…", "正在整理判断材料…"]
             : ["正在处理…"];
+    const stepEl = bar.querySelector(".it-busy-step") as HTMLElement | null;
+    const timeEl = bar.querySelector(".it-busy-time") as HTMLElement | null;
     const tick = () => {
       const elapsed = Math.floor((Date.now() - started) / 1000);
       const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
       const ss = String(elapsed % 60).padStart(2, "0");
       const tip = tips[Math.floor(elapsed / 4) % tips.length];
-      bar.setText(`${tip} · 已用 ${mm}:${ss} · 预计 ${estimate}`);
+      stepEl?.setText(tip);
+      timeEl?.setText(`已用 ${mm}:${ss} · 预计 ${estimate}`);
     };
     tick();
     this.busyTimer = window.setInterval(tick, 1000);
@@ -2733,10 +2753,12 @@ export class TrackerHomeView extends ItemView {
       };
     }
 
-    const busy = root.createEl("div", {
-      cls: "it-busy",
+    const busy = root.createEl("div", { cls: "it-busy" });
+    busy.createEl("span", {
+      cls: "it-busy-step",
       text: this.busy ? "正在运行…" : "就绪",
     });
+    busy.createEl("span", { cls: "it-busy-time", text: "" });
     busy.toggleClass("is-idle", !this.busy);
     if (this.busy) this.startBusyTimer(busy);
 

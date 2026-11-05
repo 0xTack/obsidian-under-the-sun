@@ -2981,9 +2981,11 @@ h2 .it-timeline-sort b {
 
 
 .it-busy {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 9.5px !important;
+  line-height: 1.35;
+  white-space: normal !important;
+  overflow: visible !important;
+  overflow-wrap: anywhere;
 }
 
 .it-actions.is-centered {
@@ -3012,4 +3014,29 @@ h2 .it-timeline-sort b {
 .it-actions.is-split {
   justify-content: space-between;
   padding: 0 20px;
+}
+
+.it-busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.it-busy-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.it-busy-time {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.it-busy {
+  padding-right: 4px;
 }

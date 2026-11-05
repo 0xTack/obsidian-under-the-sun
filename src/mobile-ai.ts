@@ -86,6 +86,24 @@ export class MobileAI {
     }
   }
 
+  async translate(text: string): Promise<string> {
+    const query = (text || "").trim();
+    if (!query || !this.available()) return "";
+    return this.post(
+      [
+        {
+          role: "system",
+          content:
+            "你是严谨的新闻翻译。把用户给出的外文新闻标题或摘要翻译成简体中文。" +
+            "只输出译文，不要解释，不要保留原文，不要加引号。人名、机构名、数字和日期保持准确。",
+        },
+        { role: "user", content: query.slice(0, 2000) },
+      ],
+      1200,
+      0
+    );
+  }
+
   async interpret(title: string, summary = ""): Promise<string> {
     return this.post(
       [
