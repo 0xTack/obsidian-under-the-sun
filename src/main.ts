@@ -29,6 +29,7 @@ import { BackendClient, BackendHealth } from "./backend";
 import { RssItem, dedupeItems, parseFeed, translateText } from "./rss";
 
 const VIEW_TYPE = "under-the-sun-home";
+const BACKEND_API = 1;
 const MOBILE_AI_KEY = "under-the-sun-mobile-api-key";
 const MOBILE_SETTINGS_KEY = "under-the-sun-mobile-settings";
 
@@ -45,6 +46,7 @@ interface TrackerSettings {
   rssFeeds: string;
   rssDigestFolder: string;
   rssMaxItems: number;
+  rssWatchKeywords: string;
   scheduleMorning: string;
   scheduleEvening: string;
   scheduleEnabled: boolean;
@@ -69,6 +71,7 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   rssFeeds: "",
   rssDigestFolder: "朝闻天下/RSS日报",
   rssMaxItems: 60,
+  rssWatchKeywords: "",
   scheduleMorning: "07:00",
   scheduleEvening: "19:00",
   scheduleEnabled: true,
@@ -259,6 +262,25 @@ interface TopItem {
   has_judgment?: boolean;
 }
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function deepMerge(base: any, over: any): any {
   for (const key of Object.keys(over)) {
     const value = over[key];
@@ -299,6 +321,14 @@ export default class InfoTrackerPlugin extends Plugin {
   lastLog = "";
   backend!: BackendClient;
   backendHealth: BackendHealth = { ok: false };
+  sourceTestResults: Array<{
+    name: string;
+    url: string;
+    ok: boolean;
+    status?: number;
+    error?: string;
+  }> = [];
+  private backendWarned = false;
   rssItems: RssItem[] = [];
   runStartedAt = 0;
   runLabel = "";
@@ -356,6 +386,13 @@ export default class InfoTrackerPlugin extends Plugin {
     this.statusBar.addClass("mod-clickable");
     this.statusBar.onClickEvent(() => this.activateView());
     this.refreshStatusBar();
+    if (!this.isMobile()) {
+      this.registerInterval(
+        window.setInterval(() => {
+          void this.autoReconnectBackend();
+        }, 30000)
+      );
+    }
 
     this.addSettingTab(new TrackerSettingTab(this.app, this));
 
@@ -590,12 +627,70 @@ export default class InfoTrackerPlugin extends Plugin {
   async checkBackend(): Promise<BackendHealth> {
     this.backend = new BackendClient(this.settings.backendUrl, this.settings.backendToken);
     this.backendHealth = await this.backend.health();
+    this.warnBackendVersion(this.backendHealth);
     return this.backendHealth;
+  }
+
+  private warnBackendVersion(health: BackendHealth) {
+    if (!health.ok || !health.api || health.api === BACKEND_API) return;
+    if (this.backendWarned) return;
+    this.backendWarned = true;
+    new Notice(
+      `本地增强服务 API v${health.api} 与插件 v${BACKEND_API} 不匹配，请更新本地增强服务`,
+      12000
+    );
+  }
+
+  async autoReconnectBackend() {
+    if (this.isMobile() || this.running) return;
+    const was = this.backendHealth.ok;
+    this.backendHealth = await this.backend.health();
+    this.warnBackendVersion(this.backendHealth);
+    if (this.backendHealth.ok !== was) await this.view?.refresh();
   }
 
   async runSetup(): Promise<number> {
     this.openBackendInstallGuide();
     return -1;
+  }
+
+  async testSources(): Promise<void> {
+    const results = await this.backend.testSources();
+    if (!results) {
+      new Notice("本地增强服务未连接，无法测试来源");
+      return;
+    }
+    this.sourceTestResults = results;
+    new SourceTestModal(this.app, results, () => {
+      void this.applyReachableSources();
+    }).open();
+  }
+
+  async applyReachableSources(): Promise<void> {
+    if (!this.sourceTestResults.length) {
+      new Notice("先点「测试 RSS 来源」");
+      return;
+    }
+    const status = await this.readStatus();
+    const rss = (status?.sources || []).filter(
+      (source) => source.key.startsWith("rss:") && source.url
+    );
+    const unreachable = new Set(
+      this.sourceTestResults.filter((item) => !item.ok).map((item) => item.url)
+    );
+    const disabled = rss
+      .filter((source) => !source.enabled || unreachable.has(source.url || ""))
+      .map((source) => source.url as string);
+    const ok = await this.backend.saveConfig({
+      sources: { rss: { disabled } },
+    });
+    if (!ok) {
+      new Notice("保存失败，本地增强服务未连接");
+      return;
+    }
+    await this.runCli(["status"], true);
+    await this.view?.refresh();
+    new Notice("已只启用可访问的 RSS 来源");
   }
 
   async runWithConfirm(): Promise<number> {
@@ -621,8 +716,15 @@ export default class InfoTrackerPlugin extends Plugin {
       return -1;
     }
     if (!this.backend.configured) {
-      new Notice("还没有安装本地增强服务；先点主页的「下载安装包」");
+      new Notice("还没有安装本地增强服务；先点主页的「安装本地增强服务」");
       return -1;
+    }
+    if (!this.backendHealth.ok) {
+      await this.checkBackend();
+      if (!this.backendHealth.ok) {
+        new Notice("本地增强服务未连接；请确认服务已启动");
+        return -1;
+      }
     }
     if (this.running) {
       if (!queue) {
@@ -1796,6 +1898,7 @@ export default class InfoTrackerPlugin extends Plugin {
           rssFeeds: this.settings.rssFeeds,
           rssDigestFolder: this.settings.rssDigestFolder,
           rssMaxItems: this.settings.rssMaxItems,
+          rssWatchKeywords: this.settings.rssWatchKeywords,
           showStatusBar: this.settings.showStatusBar,
           lastAlertAt: this.settings.lastAlertAt,
         })
@@ -1823,6 +1926,13 @@ export default class InfoTrackerPlugin extends Plugin {
       .split(/\r?\n/)
       .map((row) => row.trim())
       .filter((row) => row && !row.startsWith("#"));
+  }
+
+  rssKeywords(): string[] {
+    return (this.settings.rssWatchKeywords || "")
+      .split(/\r?\n/)
+      .map((row) => row.trim().toLowerCase())
+      .filter(Boolean);
   }
 
   async fetchRss(): Promise<void> {
@@ -1920,6 +2030,79 @@ export default class InfoTrackerPlugin extends Plugin {
     }
   }
 
+  private digestRelativePath(status: StatusPayload): string {
+    if (!status.vault) return status.digest_path;
+    return status.digest_path.startsWith(status.vault)
+      ? status.digest_path.slice(status.vault.length + 1)
+      : status.digest_path;
+  }
+
+  async currentDigest(): Promise<{ file: TFile; markdown: string } | null> {
+    const status = await this.readStatus();
+    let rel = "";
+    if (status?.digest_exists) {
+      rel = this.digestRelativePath(status);
+    } else {
+      const day = new Date().toISOString().slice(0, 10);
+      const folder = normalizePath(this.settings.rssDigestFolder || "朝闻天下/RSS日报");
+      rel = normalizePath(`${folder}/${day}.md`);
+    }
+    const file = this.app.vault.getAbstractFileByPath(rel);
+    if (!(file instanceof TFile)) return null;
+    return { file, markdown: await this.app.vault.read(file) };
+  }
+
+  async copyDigest(): Promise<void> {
+    const digest = await this.currentDigest();
+    if (!digest) {
+      new Notice("今天还没有日报");
+      return;
+    }
+    const ok = await copyText(digest.markdown);
+    new Notice(ok ? "今日日报已复制为 Markdown" : "复制失败，请重试");
+  }
+
+  async exportDigestHtml(): Promise<void> {
+    const digest = await this.currentDigest();
+    if (!digest) {
+      new Notice("今天还没有日报");
+      return;
+    }
+    const component = new Component();
+    component.load();
+    try {
+      const body = document.createElement("div");
+      await MarkdownRenderer.render(this.app, digest.markdown, body, "", component);
+      const day = digest.file.basename;
+      const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>${day} 朝闻天下</title>
+<style>
+body{max-width:820px;margin:40px auto;padding:0 20px;font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif;color:#26231f;background:#f6f2ea}
+h1,h2,h3{line-height:1.3} a{color:#b23a2f} blockquote{border-left:3px solid #b23a2f;margin:1em 0;padding:.2em 1em;background:#fffdf8}
+code{background:#efe9de;padding:.1em .35em;border-radius:3px} pre{overflow:auto;padding:12px;background:#fffdf8}
+.callout{border:1px solid #dfd8cb;border-radius:6px;padding:10px 14px;margin:12px 0;background:#fffdf8}
+.callout-title{font-weight:600}
+</style></head><body>${body.innerHTML}</body></html>`;
+      const folder = normalizePath("朝闻天下/导出");
+      if (!this.app.vault.getAbstractFileByPath(folder)) {
+        await this.app.vault.createFolder(folder);
+      }
+      const path = normalizePath(`${folder}/${day}.html`);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) {
+        await this.app.vault.modify(existing, html);
+      } else {
+        await this.app.vault.create(path, html);
+      }
+      new Notice(`已导出：${path}`);
+    } catch (err) {
+      console.error("under-the-sun: 导出 HTML 失败", err);
+      new Notice("导出失败，看控制台");
+    } finally {
+      component.unload();
+    }
+  }
+
   async simpleInterpret(item: RssItem): Promise<void> {
     const ai = this.mobileAi();
     if (!ai.available()) {
@@ -1984,6 +2167,8 @@ export class TrackerHomeView extends ItemView {
   private logEl: HTMLElement | null = null;
   private openSimpleChat = "";
   private busyTimer = 0;
+  private rssQuery = "";
+  private rssFilter: "all" | "unread" | "watch" = "all";
 
   constructor(leaf: WorkspaceLeaf, plugin: InfoTrackerPlugin) {
     super(leaf);
@@ -2098,8 +2283,9 @@ export class TrackerHomeView extends ItemView {
     const status = this.status;
     const mobile = this.plugin.isMobile();
 
-    root.createEl("h2", { text: "朝闻天下", cls: "it-title" });
-    const sub = root.createEl("div", { cls: "it-sub" });
+    const heading = root.createDiv({ cls: "it-head" });
+    heading.createEl("h2", { text: "朝闻天下", cls: "it-title" });
+    const sub = heading.createDiv({ cls: "it-sub" });
     if (!status) {
       sub.setText(
         mobile
@@ -2140,6 +2326,7 @@ export class TrackerHomeView extends ItemView {
     }
 
     this.renderBackendBar(root);
+    this.renderAI(root, status);
     this.renderActions(root);
 
     if (status?.alerts?.unread) this.renderAlerts(root, status);
@@ -2150,7 +2337,6 @@ export class TrackerHomeView extends ItemView {
       this.renderMobileHint(root, status);
     } else {
       this.renderSources(root, status);
-      this.renderAI(root, status);
     }
 
     const logHead = root.createEl("div", { cls: "it-section-head" });
@@ -2202,10 +2388,7 @@ export class TrackerHomeView extends ItemView {
 
     const list = root.createDiv({ cls: "it-card" });
     const head = list.createDiv({ cls: "it-section-head" });
-    const unread = plugin.rssItems.filter((item) => !item.read).length;
-    head.createEl("span", {
-      text: `RSS 新闻 · ${plugin.rssItems.length} 条 / ${unread} 未读`,
-    });
+    const countEl = head.createEl("span");
 
     const tools = list.createDiv({ cls: "it-actions" });
     const refresh = tools.createEl("button", { text: "刷新 RSS", cls: "it-mini mod-cta" });
@@ -2234,13 +2417,81 @@ export class TrackerHomeView extends ItemView {
       return;
     }
 
-    for (const item of plugin.rssItems.slice(0, 80)) {
-      const row = list.createDiv({ cls: `it-news${item.read ? " is-read" : ""}` });
+    const search = list.createEl("input", {
+      type: "text",
+      cls: "it-input it-rss-search",
+      placeholder: "搜索标题、摘要、来源",
+    });
+    search.value = this.rssQuery;
+
+    const filterRow = list.createDiv({ cls: "it-rss-filters" });
+    const buttons: Record<string, HTMLButtonElement> = {};
+    const applyFilter = () => {
+      for (const [key, button] of Object.entries(buttons)) {
+        button.toggleClass("is-active", this.rssFilter === key);
+      }
+      this.renderSimpleItems(listBody, countEl);
+    };
+    for (const [key, label] of [
+      ["all", "全部"],
+      ["unread", "未读"],
+      ["watch", "关注"],
+    ] as Array<["all" | "unread" | "watch", string]>) {
+      const button = filterRow.createEl("button", { text: label, cls: "it-mini" });
+      buttons[key] = button;
+      button.onclick = () => {
+        this.rssFilter = key;
+        applyFilter();
+      };
+    }
+    search.oninput = () => {
+      this.rssQuery = search.value;
+      this.renderSimpleItems(listBody, countEl);
+    };
+
+    const listBody = list.createDiv({ cls: "it-rss-list" });
+    applyFilter();
+  }
+
+  private renderSimpleItems(container: HTMLElement, countEl: HTMLElement) {
+    const plugin = this.plugin;
+    container.empty();
+    const query = this.rssQuery.trim().toLowerCase();
+    const keywords = plugin.rssKeywords();
+    const matches = (item: RssItem) =>
+      keywords.some((keyword) =>
+        `${item.title} ${item.summary}`.toLowerCase().includes(keyword)
+      );
+    const items = plugin.rssItems.filter((item) => {
+      if (this.rssFilter === "unread" && item.read) return false;
+      if (this.rssFilter === "watch" && !matches(item)) return false;
+      if (
+        query &&
+        !`${item.title} ${item.summary} ${item.feed}`.toLowerCase().includes(query)
+      ) {
+        return false;
+      }
+      return true;
+    });
+    const unread = plugin.rssItems.filter((item) => !item.read).length;
+    countEl.setText(`RSS 新闻 · ${items.length} 条 / ${unread} 未读`);
+    if (!items.length) {
+      container.createDiv({ cls: "it-hint", text: "没有匹配的新闻" });
+      return;
+    }
+
+    for (const item of items.slice(0, 80)) {
+      const row = container.createDiv({
+        cls: `it-news${item.read ? " is-read" : ""}`,
+      });
       const title = row.createDiv({ cls: "it-news-title", text: item.title });
       title.onclick = () => {
         if (item.link) window.open(item.link);
         if (!item.read) void plugin.toggleRead(item);
       };
+      if (matches(item)) {
+        row.createEl("span", { cls: "it-keyword-badge", text: "关注" });
+      }
       row.createDiv({
         cls: "it-news-meta",
         text: `${item.feed}${item.date ? " · " + item.date.slice(0, 16).replace("T", " ") : ""}`,
@@ -2254,13 +2505,10 @@ export class TrackerHomeView extends ItemView {
         cls: "it-mini",
       });
       read.onclick = () => void plugin.toggleRead(item);
-
       const translate = rowActions.createEl("button", { text: "翻译", cls: "it-mini" });
       translate.onclick = () => void plugin.translateItem(item);
-
       const ai = rowActions.createEl("button", { text: "AI 解读", cls: "it-mini" });
       ai.onclick = () => void plugin.simpleInterpret(item);
-
       const chat = rowActions.createEl("button", { text: "AI 交流", cls: "it-mini" });
       chat.onclick = async () => {
         this.openSimpleChat = this.openSimpleChat === item.id ? "" : item.id;
@@ -2312,17 +2560,26 @@ export class TrackerHomeView extends ItemView {
   private renderBackendBar(root: HTMLElement) {
     const health = this.plugin.backendHealth;
     const bar = root.createDiv({ cls: "it-backend-bar" });
-    const button = bar.createEl("button", {
+    const button = bar.createEl("div", {
       cls: `it-backend-open${health.ok ? " is-connected" : ""}`,
+      attr: { role: "button", tabindex: "0" },
     });
     button.createEl("span", { text: "本地增强服务" });
+    const mismatch = health.ok && !!health.api && health.api !== BACKEND_API;
     button.createEl("span", {
-      cls: "it-backend-state",
+      cls: `it-badge ${health.ok && !mismatch ? "on" : "off"}`,
       text: health.ok
-        ? `已连接${health.version ? ` · v${health.version}` : ""}`
-        : "未连接 · 点击设置",
+        ? `${health.version ? `v${health.version} · ` : ""}${mismatch ? "需更新" : "已连接"}`
+        : "未连接",
     });
-    button.onclick = () => new BackendSettingsModal(this.app, this.plugin).open();
+    const open = () => new BackendSettingsModal(this.app, this.plugin).open();
+    button.onclick = open;
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
   }
 
   private renderActions(root: HTMLElement) {
@@ -2338,9 +2595,6 @@ export class TrackerHomeView extends ItemView {
 
     const run = box.createEl("button", { text: "抓取并出报", cls: "it-action mod-cta" });
     run.onclick = () => void this.plugin.runWithConfirm();
-
-    const fetchOnly = box.createEl("button", { text: "收集", cls: "it-action" });
-    fetchOnly.onclick = () => this.plugin.runCli(["fetch"]);
 
     const open = box.createEl("button", { text: "打开今日日报", cls: "it-action" });
     open.onclick = () => this.openToday();
@@ -2783,13 +3037,43 @@ export class TrackerHomeView extends ItemView {
   }
 
   private renderAI(root: HTMLElement, status: StatusPayload | null) {
-    const card = root.createEl("div", { cls: "it-card" });
-    const head = card.createEl("div", { cls: "it-section-head" });
+    const ready = !!(status?.ai?.enabled && status?.ai?.has_key);
+    const card = root.createEl("details", { cls: "it-ai-status" });
+    card.open = !ready;
+    const head = card.createEl("summary", { cls: "it-ai-summary" });
     head.createEl("span", { text: "AI 解读" });
-    const badge = head.createEl("span", {
-      cls: `it-badge ${status?.ai?.enabled && status?.ai?.has_key ? "on" : "off"}`,
-      text: status?.ai?.enabled && status?.ai?.has_key ? "已启用" : "未启用",
+    head.createEl("span", {
+      cls: "it-ai-purpose",
+      text: "证据链研判 · 可检验判断",
     });
+    head.createEl("span", {
+      cls: `it-badge ${ready ? "on" : "off"}`,
+      text: ready ? "已启用" : "未启用",
+    });
+
+    card.createEl("p", {
+      cls: "it-hint",
+      text: "不是问答框。它按固定流程拆解事实、信源、矛盾、利益、反方与可证伪条件；AI 不参与排序，最终判断由你确认。",
+    });
+
+    if (!status?.ai?.has_key) {
+      const guide = card.createEl("div", { cls: "it-ai-guide" });
+      guide.createEl("div", { cls: "it-subhead", text: "没有 API Key？按下面步骤配置" });
+      const steps = guide.createEl("ol", { cls: "it-install-steps" });
+      for (const text of [
+        "打开 DeepSeek 开放平台，注册或登录。",
+        "在「API Keys」里创建一个 Key，复制保存。",
+        "回到这里：API 地址填 https://api.deepseek.com/v1，模型选 deepseek-flash。",
+        "把 Key 粘贴到下面，点「保存」或「测试连接」。",
+      ]) {
+        steps.createEl("li", { text });
+      }
+      const open = guide.createEl("button", {
+        text: "去 DeepSeek 获取 API Key",
+        cls: "mod-cta",
+      });
+      open.onclick = () => window.open("https://platform.deepseek.com/api_keys", "_blank");
+    }
 
     const form = card.createEl("div", { cls: "it-form" });
 
@@ -3322,7 +3606,7 @@ class ChatModal extends Modal {
 
     try {
       if (this.plugin.isMobile()) {
-        const status = await this.plugin.readStatus();
+    const status = await this.plugin.readStatus();
         const item =
           status?.mobile_items?.find((row) => row.id === this.itemId) ||
           status?.top_items?.find((row) => row.id === this.itemId);
@@ -3441,6 +3725,71 @@ class ChatModal extends Modal {
     if (this.statusTimer) window.clearTimeout(this.statusTimer);
     this.statusTimer = 0;
     this.renderer.unload();
+    this.contentEl.empty();
+  }
+}
+
+class SourceTestModal extends Modal {
+  private results: Array<{
+    name: string;
+    url: string;
+    ok: boolean;
+    status?: number;
+    error?: string;
+  }>;
+  private onApply: () => void;
+
+  constructor(
+    app: App,
+    results: Array<{
+      name: string;
+      url: string;
+      ok: boolean;
+      status?: number;
+      error?: string;
+    }>,
+    onApply: () => void
+  ) {
+    super(app);
+    this.results = results;
+    this.onApply = onApply;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "RSS 来源连通性" });
+    contentEl.createEl("p", {
+      cls: "it-hint",
+      text: "只测试 RSS 源；被阻断或超时的源会标红。外国源是否可用取决于本地网络或代理。",
+    });
+    const list = contentEl.createDiv({ cls: "it-source-test-list" });
+    for (const item of this.results) {
+      const row = list.createDiv({ cls: "it-source-test-row" });
+      row.createEl("span", {
+        cls: `it-source-badge ${item.ok ? "is-on" : ""}`,
+        text: item.ok ? "可访问" : "不可访问",
+      });
+      row.createEl("span", { cls: "it-source-test-name", text: item.name });
+      row.createEl("span", {
+        cls: "it-source-test-state",
+        text: item.ok ? "" : item.error || (item.status ? `HTTP ${item.status}` : ""),
+      });
+    }
+    const actions = contentEl.createDiv({ cls: "it-actions" });
+    const apply = actions.createEl("button", {
+      text: "只启用可访问来源",
+      cls: "mod-cta",
+    });
+    apply.onclick = () => {
+      this.close();
+      this.onApply();
+    };
+    const close = actions.createEl("button", { text: "关闭" });
+    close.onclick = () => this.close();
+  }
+
+  onClose() {
     this.contentEl.empty();
   }
 }
@@ -3604,7 +3953,7 @@ class BackendSettingsModal extends Modal {
     const health = this.plugin.backendHealth;
     this.statusEl.setText(
       health.ok
-        ? `已连接${health.version ? ` · v${health.version}` : ""}`
+        ? `${health.version ? `v${health.version} · ` : ""}已连接`
         : `未连接${health.error ? ` · ${health.error}` : ""}`
     );
   }
@@ -3853,6 +4202,20 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(simple)
+      .setName("关注关键词")
+      .setDesc("一行一个。轻量模式下命中的新闻会标「关注」，可以点「关注」筛选。")
+      .addTextArea((text) => {
+        text.inputEl.rows = 3;
+        text.inputEl.addClass("it-textarea");
+        text
+          .setPlaceholder("例如：人工智能\n芯片")
+          .setValue(this.plugin.settings.rssWatchKeywords)
+          .onChange((value) => {
+            this.plugin.settings.rssWatchKeywords = value;
+          });
+      });
+
     new Setting(simple).addButton((button) =>
       button
         .setButtonText("保存 RSS 设置")
@@ -3867,18 +4230,36 @@ class TrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("本地增强服务").setHeading();
     new Setting(containerEl)
       .setName("安装 / 更新本地增强服务")
-      .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要本地增强服务。安装器只装增强服务，不覆盖插件。")
+      .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要它。安装器只装增强服务，不覆盖插件。")
       .addButton((button) =>
         button
-          .setButtonText("下载安装包")
+          .setButtonText("安装 / 更新")
           .setCta()
-          .onClick(() => this.plugin.openBackendInstallGuide())
+          .onClick(() => this.plugin.openInstallGuide())
       )
       .addButton((button) =>
         button.setButtonText("检测连接").onClick(async () => {
           const health = await this.plugin.checkBackend();
           new Notice(health.ok ? "本地增强服务已连接" : "本地增强服务未连接，请先完成安装");
           await this.plugin.view?.refresh();
+        })
+      );
+
+    new Setting(containerEl).setName("来源连通性").setHeading();
+    new Setting(containerEl)
+      .setName("测试 RSS 来源")
+      .setDesc("检查每个 RSS 源在当前网络或代理下是否可访问。外国源是否可用取决于本地网络。")
+      .addButton((button) =>
+        button.setButtonText("开始测试").onClick(() => {
+          void this.plugin.testSources();
+        })
+      );
+    new Setting(containerEl)
+      .setName("只启用可访问的 RSS")
+      .setDesc("根据上次测试结果，关闭不可达的源；手动关闭的源会保留。")
+      .addButton((button) =>
+        button.setButtonText("应用").onClick(() => {
+          void this.plugin.applyReachableSources();
         })
       );
 
@@ -3895,13 +4276,34 @@ class TrackerSettingTab extends PluginSettingTab {
     let scheduleEvening = schedule.evening || "19:00";
     let scheduleEveningDigest = schedule.eveningDigest === true;
 
+    const saveSchedule = async () => {
+      this.plugin.settings.scheduleEnabled = scheduleEnabled;
+      this.plugin.settings.scheduleMorning = scheduleMorning;
+      this.plugin.settings.scheduleEvening = scheduleEvening;
+      this.plugin.settings.scheduleEveningDigest = scheduleEveningDigest;
+      await this.plugin.saveSettings();
+      const ok = await this.plugin.backend.saveSchedule({
+        enabled: scheduleEnabled,
+        morning: scheduleMorning,
+        evening: scheduleEvening,
+        eveningDigest: scheduleEveningDigest,
+      });
+      new Notice(ok ? "抓取时间已保存" : "已保存到本机；本地增强服务未连接");
+      await this.plugin.view?.refresh();
+    };
+
     new Setting(containerEl).setName("抓取时间").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "定时抓取由本地增强服务负责（默认 07:00 / 19:00）；关掉 Obsidian 也会运行。",
+    });
     new Setting(containerEl)
       .setName("启用定时抓取")
       .setDesc("本地增强服务启动时会按下面的时间自动运行；关闭后只能手动抓取。")
       .addToggle((toggle) =>
         toggle.setValue(scheduleEnabled).onChange((value) => {
           scheduleEnabled = value;
+          void saveSchedule();
         })
       );
     new Setting(containerEl)
@@ -3911,6 +4313,7 @@ class TrackerSettingTab extends PluginSettingTab {
         text.inputEl.type = "time";
         text.setValue(scheduleMorning).onChange((value) => {
           scheduleMorning = value || "07:00";
+          void saveSchedule();
         });
       });
     new Setting(containerEl)
@@ -3920,6 +4323,7 @@ class TrackerSettingTab extends PluginSettingTab {
         text.inputEl.type = "time";
         text.setValue(scheduleEvening).onChange((value) => {
           scheduleEvening = value || "19:00";
+          void saveSchedule();
         });
       });
     new Setting(containerEl)
@@ -3929,6 +4333,7 @@ class TrackerSettingTab extends PluginSettingTab {
         toggle.setValue(scheduleEveningDigest).onChange((value) => {
           if (!value) {
             scheduleEveningDigest = false;
+            void saveSchedule();
             return;
           }
           if (scheduleEveningDigest) return;
@@ -3938,6 +4343,7 @@ class TrackerSettingTab extends PluginSettingTab {
             () => {
               scheduleEveningDigest = true;
               toggle.setValue(true);
+              void saveSchedule();
             },
             "打开晚上出报？",
             "确认打开"
@@ -3945,27 +4351,6 @@ class TrackerSettingTab extends PluginSettingTab {
           toggle.setValue(false);
         })
       );
-    new Setting(containerEl).addButton((button) =>
-      button
-        .setButtonText("保存抓取时间")
-        .setCta()
-        .onClick(async () => {
-          this.plugin.settings.scheduleEnabled = scheduleEnabled;
-          this.plugin.settings.scheduleMorning = scheduleMorning;
-          this.plugin.settings.scheduleEvening = scheduleEvening;
-          this.plugin.settings.scheduleEveningDigest = scheduleEveningDigest;
-          await this.plugin.saveSettings();
-          const ok = await this.plugin.backend.saveSchedule({
-            enabled: scheduleEnabled,
-            morning: scheduleMorning,
-            evening: scheduleEvening,
-            eveningDigest: scheduleEveningDigest,
-          });
-          new Notice(ok ? "抓取时间已保存" : "已保存到本机；本地增强服务未连接");
-          await this.plugin.view?.refresh();
-        })
-    );
-
     const filters = status?.filters || {};
     const dedupe = status?.dedupe || {};
 
@@ -4056,18 +4441,24 @@ class TrackerSettingTab extends PluginSettingTab {
     const placeholderFor = (type: string) =>
       ruleTypes.find((row) => row.value === type)?.placeholder || ruleTypes[0].placeholder;
 
-    const ruleBox = containerEl.createEl("div", { cls: "it-filter-rules" });
+    const ruleBox = containerEl.createEl("details", {
+      cls: "it-filter-rules it-settings-collapse",
+    });
+    const ruleSummary = ruleBox.createEl("summary");
+    const ruleList = ruleBox.createEl("div", { cls: "it-filter-rule-list" });
+    const ruleActions = ruleBox.createEl("div", { cls: "it-rule-actions" });
     const renderRules = () => {
-      ruleBox.empty();
+      ruleList.empty();
+      ruleSummary.setText(`规则列表（${rules.length} 条）`);
       if (!rules.length) {
-        ruleBox.createEl("div", {
+        ruleList.createEl("div", {
           cls: "it-hint",
           text: "还没有规则。点下面的「添加规则」加一条。",
         });
       }
       rules.forEach((rule, index) => {
         rule.type = normalizeType(rule.type);
-        const row = ruleBox.createEl("div", { cls: "it-filter-rule" });
+        const row = ruleList.createEl("div", { cls: "it-filter-rule" });
         const enabled = row.createEl("input", { type: "checkbox", cls: "it-rule-enabled" });
         enabled.checked = rule.enabled !== false;
         enabled.onchange = () => {
@@ -4100,14 +4491,14 @@ class TrackerSettingTab extends PluginSettingTab {
       });
     };
 
-    const addRule = containerEl.createEl("button", {
+    const addRule = ruleActions.createEl("button", {
       text: "+ 添加规则",
-      cls: "mod-cta",
+      cls: "it-mini mod-cta",
     });
     addRule.onclick = () => {
       rules.push({ type: "keyword", value: "", enabled: true });
       renderRules();
-      const inputs = ruleBox.querySelectorAll("input");
+      const inputs = ruleList.querySelectorAll("input");
       const last = inputs[inputs.length - 1] as HTMLInputElement | undefined;
       last?.focus();
     };
@@ -4126,9 +4517,9 @@ class TrackerSettingTab extends PluginSettingTab {
       block_keywords: [],
     });
 
-    const saveRules = containerEl.createEl("button", {
+    const saveRules = ruleActions.createEl("button", {
       text: "保存屏蔽规则",
-      cls: "mod-cta",
+      cls: "it-mini",
     });
     saveRules.onclick = async () => {
       await this.plugin.saveOverrides({ filters: filterPayload() });
@@ -4208,45 +4599,94 @@ class TrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl).setName("更新").setHeading();
-
     new Setting(containerEl)
-      .setName("检查更新")
-      .setDesc("从 GitHub Releases 查找 Under The Sun 的新版本，按版本号数字比较。")
+      .setName("插件更新")
+      .setDesc("通过 Obsidian 市场自动更新。本地增强服务的更新在「本地增强服务」里检测。")
       .addButton((button) =>
-        button.setButtonText("检查更新").onClick(() => {
-          void this.plugin.checkUpdate();
+        button.setButtonText("打开市场页").onClick(() => {
+          window.open("https://community.obsidian.md/plugins/under-the-sun", "_blank");
         })
       );
 
-    new Setting(containerEl)
-      .setName("更新仓库")
-      .setDesc("owner/repo，例如 0xTack/TokenPeek")
-      .addText((text) =>
-        text
-          .setPlaceholder("0xTack/TokenPeek")
-          .setValue(this.plugin.settings.updateRepo || "")
-          .onChange(async (value) => {
-            this.plugin.settings.updateRepo = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("下载 / 发布页")
-      .setDesc("没有匹配到 Release 资产时，检查更新会打开这个地址。")
-      .addText((text) =>
-        text
-          .setPlaceholder("https://0xtack.github.io/TokenPeek/works.html")
-          .setValue(this.plugin.settings.updateUrl || "")
-          .onChange(async (value) => {
-            this.plugin.settings.updateUrl = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "定时抓取由 macOS launchd 负责（每天 07:00 / 19:00），关掉 Obsidian 也会跑。",
+    const helpBox = containerEl.createEl("details", {
+      cls: "it-settings-collapse it-settings-plain",
     });
+    helpBox.createEl("summary", { text: "主页按钮说明" });
+    const help = helpBox.createEl("ul", { cls: "it-settings-help" });
+    for (const [title, desc] of [
+      [
+        "抓取并出报",
+        "抓取热榜与 RSS，补全正文、聚类打分、更新跟踪，然后生成当天日报。今天已有日报时会先确认；确认后会覆盖正文，但保留跟踪/已读勾选和 AI 缓存。",
+      ],
+      ["打开今日日报", "只打开当天已生成的日报，不会抓取或改写。"],
+      [
+        "停止",
+        "尝试停止当前任务。当前后端只支持等待任务完成，按钮可能提示暂不支持中断。",
+      ],
+      [
+        "AI 解读",
+        "点击展开或收起 AI 设置。未配置 API Key 时会显示 DeepSeek 获取 Key 的步骤。AI 只做证据链研判，不参与排序。",
+      ],
+      [
+        "本地增强服务",
+        "点击打开增强服务设置，查看连接状态、token 和安装/更新入口。",
+      ],
+    ] as Array<[string, string]>) {
+      const li = help.createEl("li");
+      li.createEl("strong", { text: title + "：" });
+      li.createEl("span", { text: desc });
+    }
+    new Setting(containerEl).setName("日报导出").setHeading();
+    new Setting(containerEl)
+      .setName("复制今日日报")
+      .setDesc("把今天的日报复制成 Markdown，方便粘贴到聊天、邮件或其他笔记。")
+      .addButton((button) =>
+        button.setButtonText("复制 Markdown").onClick(() => {
+          void this.plugin.copyDigest();
+        })
+      );
+    new Setting(containerEl)
+      .setName("导出为 HTML")
+      .setDesc("导出到 朝闻天下/导出/YYYY-MM-DD.html，可发给别人或浏览器打开。")
+      .addButton((button) =>
+        button.setButtonText("导出 HTML").onClick(() => {
+          void this.plugin.exportDigestHtml();
+        })
+      );
+
+    new Setting(containerEl).setName("反馈").setHeading();
+    new Setting(containerEl)
+      .setName("GitHub Issues")
+      .setDesc("报告问题、提功能建议，或查看作者主页。")
+      .addButton((button) =>
+        button
+          .setButtonText("报告问题")
+          .setClass("it-mini")
+          .onClick(() => {
+            window.open(
+              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=bug_report.md",
+              "_blank"
+            );
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("功能建议")
+          .setClass("it-mini")
+          .onClick(() => {
+            window.open(
+              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=feature_request.md",
+              "_blank"
+            );
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("作者主页")
+          .setClass("it-mini")
+          .onClick(() => {
+            window.open("https://github.com/0xTack", "_blank");
+          })
+      );
   }
 }

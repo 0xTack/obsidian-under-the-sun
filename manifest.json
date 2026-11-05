@@ -4,7 +4,7 @@
   "version": "2.0.0",
   "minAppVersion": "1.8.7",
   "description": "Read RSS feeds, with an optional local backend for hotlists, tracking and judgments.",
-  "author": "0xTack",
+  "author": "Tack",
   "isDesktopOnly": false,
   "authorUrl": "https://github.com/0xTack",
   "fundingUrl": "https://afdian.com/a/tack123/plan"

@@ -124,6 +124,33 @@ export class BackendClient {
     }
   }
 
+  async testSources(): Promise<
+    Array<{ name: string; url: string; ok: boolean; status?: number; error?: string }> | null
+  > {
+    if (!this.configured) return null;
+    try {
+      const res = await requestUrl({
+        url: this.endpoint("/sources/test"),
+        method: "GET",
+        headers: this.headers(),
+        throw: false,
+      });
+      if (res.status < 200 || res.status >= 300) return null;
+      const data = (res.json || {}) as {
+        results?: Array<{
+          name: string;
+          url: string;
+          ok: boolean;
+          status?: number;
+          error?: string;
+        }>;
+      };
+      return Array.isArray(data.results) ? data.results : null;
+    } catch {
+      return null;
+    }
+  }
+
   async saveSchedule(patch: {
     enabled?: boolean;
     morning?: string;

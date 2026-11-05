@@ -152,6 +152,14 @@ npm run lint
 
 构建产物是 `main.js`，和 `manifest.json`、`styles.css` 一起发布。
 
+## 反馈
+
+在插件设置页最下方可以直接打开：
+
+- 报告问题
+- 功能建议
+- 作者主页（Tack）
+
 ## 支持 / Sponsor
 
 如果 Under the Sun 对你有帮助，可以请作者喝杯咖啡：
