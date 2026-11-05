@@ -5163,7 +5163,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("it-settings");
-    const secM1 = this.settingSection(containerEl, "手机端说明", "只读同步、AI 在本机", true);
+    const secM1 = this.settingSection(containerEl, "手机端说明", "只读同步、AI 在本机");
     secM1.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -5319,25 +5319,14 @@ class TrackerSettingTab extends PluginSettingTab {
     summary: string,
     open = false
   ): HTMLElement {
-    const group = host.createDiv({ cls: "it-set-group" });
-    const head = group.createDiv({ cls: "it-set-head" });
-    head.createEl("div", { cls: "it-set-title", text: title });
-    head.createEl("div", { cls: "it-set-summary", text: summary });
-    head.createEl("div", { cls: "it-set-chevron", text: "›" });
-    const body = group.createDiv({ cls: "it-set-body" });
-    const sync = () => {
-      body.toggleClass("is-hidden", !group.hasClass("is-open"));
-      head.setAttr("aria-expanded", group.hasClass("is-open") ? "true" : "false");
-    };
-    group.toggleClass("is-open", open);
-    head.onclick = () => {
-      group.toggleClass("is-open", !group.hasClass("is-open"));
-      sync();
-    };
-    sync();
-    return body;
+    const group = host.createEl("details", { cls: "it-set-group" });
+    group.open = open;
+    const head = group.createEl("summary", { cls: "it-set-head" });
+    head.createEl("span", { cls: "it-set-title", text: title });
+    head.createEl("span", { cls: "it-set-summary", text: summary });
+    head.createEl("span", { cls: "it-set-chevron", text: "›" });
+    return group.createDiv({ cls: "it-set-body" });
   }
-
 
   async display() {
     if (this.plugin.isMobile()) {
@@ -5347,7 +5336,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("it-settings");
-    const sec1 = this.settingSection(containerEl, "朝闻天下 · 规则", "内容规则、RSS 轻量模式", true);
+    const sec1 = this.settingSection(containerEl, "朝闻天下 · 规则", "内容规则、RSS 轻量模式");
     sec1.createEl("p", {
       cls: "setting-item-description",
       text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
