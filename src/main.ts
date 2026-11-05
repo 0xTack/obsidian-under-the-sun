@@ -44,6 +44,7 @@ interface TrackerSettings {
   model: string;
   reasoningEffort: string;
   rssFeeds: string;
+  rssFeedsInitialized: boolean;
   rssDigestFolder: string;
   rssMaxItems: number;
   rssWatchKeywords: string;
@@ -69,6 +70,7 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   model: "deepseek-flash",
   reasoningEffort: "medium",
   rssFeeds: "",
+  rssFeedsInitialized: false,
   rssDigestFolder: "朝闻天下/RSS日报",
   rssMaxItems: 60,
   rssWatchKeywords: "",
@@ -83,7 +85,60 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   updateUrl: "https://0xtack.github.io/TokenPeek/works.html",
 };
 
-const LOGIN_ENTRIES = [
+interface RssCatalogEntry {
+  name: string;
+  url: string;
+  region: "cn" | "intl";
+}
+
+const RSS_CATALOG: RssCatalogEntry[] = [
+  { name: "澎湃新闻", url: "https://www.thepaper.cn/rss_newsDetail_25950.xml", region: "cn" },
+  { name: "新浪新闻·国内", url: "https://rss.sina.com.cn/news/china/focus15.xml", region: "cn" },
+  { name: "人民网", url: "http://www.people.com.cn/rss/politics.xml", region: "cn" },
+  { name: "新华网", url: "http://www.xinhuanet.com/politics/news_politics.xml", region: "cn" },
+  { name: "中国新闻网", url: "https://www.chinanews.com.cn/rss/scroll-news.xml", region: "cn" },
+  { name: "IT之家", url: "https://www.ithome.com/rss/", region: "cn" },
+  { name: "36氪", url: "https://36kr.com/feed", region: "cn" },
+  { name: "Google News 头条", url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", region: "intl" },
+  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", region: "intl" },
+  { name: "BBC 中文", url: "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml", region: "intl" },
+  { name: "纽约时报中文", url: "https://cn.nytimes.com/rss/", region: "intl" },
+  { name: "The Guardian", url: "https://www.theguardian.com/world/rss", region: "intl" },
+  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml", region: "intl" },
+  { name: "NYT World", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", region: "intl" },
+  { name: "CNN World", url: "http://rss.cnn.com/rss/edition_world.rss", region: "intl" },
+  { name: "DW English", url: "https://rss.dw.com/rdf/rss-en-world", region: "intl" },
+  { name: "NPR World", url: "https://feeds.npr.org/1004/rss.xml", region: "intl" },
+  { name: "Japan Times", url: "https://www.japantimes.co.jp/feed/", region: "intl" },
+  { name: "SCMP", url: "https://www.scmp.com/rss/91/feed", region: "intl" },
+  { name: "Straits Times", url: "https://www.straitstimes.com/news/world/rss.xml", region: "intl" },
+  { name: "France 24", url: "https://www.france24.com/en/rss", region: "intl" },
+  { name: "Africanews", url: "https://www.africanews.com/feed/rss", region: "intl" },
+  { name: "AllAfrica", url: "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf", region: "intl" },
+];
+
+const DEFAULT_RSS_FEEDS = [
+  "https://rss.sina.com.cn/news/china/focus15.xml",
+  "http://www.people.com.cn/rss/politics.xml",
+  "http://www.xinhuanet.com/politics/news_politics.xml",
+  "https://www.chinanews.com.cn/rss/scroll-news.xml",
+  "https://www.ithome.com/rss/",
+  "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml",
+  "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+  "https://www.theguardian.com/world/rss",
+];
+
+interface LoginEntry {
+  key: string;
+  label: string;
+  url: string;
+  cookieUrl: string;
+  required: string[];
+  requiresLogin: boolean;
+  validity: string;
+}
+
+const LOGIN_ENTRIES: LoginEntry[] = [
   {
     key: "weibo",
     label: "微博",
@@ -761,6 +816,155 @@ export default class InfoTrackerPlugin extends Plugin {
     }
   }
 
+  private loginWindows = new Map<string, any>();
+
+  async autoLoginCookie(entry: LoginEntry): Promise<void> {
+    if (this.isMobile()) {
+      new Notice("手机端无法自动读取 Cookie，请手动粘贴");
+      return;
+    }
+    if (!this.backendHealth.ok) await this.checkBackend();
+    if (!this.backendHealth.ok) {
+      new Notice("本地增强服务未连接，无法保存登录态");
+      return;
+    }
+    const remote = (window as any).require?.("electron")?.remote;
+    if (!remote?.BrowserWindow || !remote?.session) {
+      window.open(entry.url, "_blank");
+      new Notice(`当前环境不支持自动读取，已打开${entry.label}登录页，请手动粘贴 Cookie`, 10000);
+      return;
+    }
+
+    const existing = this.loginWindows.get(entry.key);
+    if (existing && !existing.isDestroyed()) {
+      existing.focus();
+      return;
+    }
+
+    const partition = "persist:under-the-sun-login";
+    let win: any;
+    try {
+      win = new remote.BrowserWindow({
+        width: 1100,
+        height: 780,
+        title: `登录${entry.label}（登录成功后会自动保存 Cookie）`,
+        autoHideMenuBar: true,
+        backgroundColor: "#ffffff",
+        webPreferences: {
+          partition,
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+      const ua = String(win.webContents.getUserAgent() || "").replace(
+        /\s(Electron|obsidian)\/[\d.]+/gi,
+        ""
+      );
+      if (ua) win.webContents.setUserAgent(ua);
+      win.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
+    } catch (err) {
+      new Notice(
+        `打开${entry.label}登录窗口失败：${err instanceof Error ? err.message : String(err)}`,
+        10000
+      );
+      return;
+    }
+
+    this.loginWindows.set(entry.key, win);
+    const session = remote.session.fromPartition(partition);
+    let finished = false;
+    let checking = false;
+    let timer = 0;
+    const stop = () => {
+      if (timer) window.clearInterval(timer);
+      timer = 0;
+      this.loginWindows.delete(entry.key);
+    };
+
+    const readCookies = async () => {
+      const cookies = await session.cookies.get({ url: entry.cookieUrl });
+      const names = new Set(cookies.map((cookie: any) => cookie.name));
+      return {
+        ok: entry.required.every((name) => names.has(name)),
+        value: cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; "),
+      };
+    };
+
+    const finish = async () => {
+      if (finished) return;
+      finished = true;
+      stop();
+      try {
+        const result = await readCookies();
+        if (!result.ok) {
+          new Notice(`没有检测到${entry.label}登录 Cookie，可以重试或手动粘贴`, 10000);
+          return;
+        }
+        await this.saveOverrides({
+          cookies: { [entry.key]: result.value },
+          cookies_meta: { [entry.key]: new Date().toISOString() },
+        });
+        await this.runCli(["status"], true);
+        await this.view?.refresh();
+        new Notice(`已自动获取并保存${entry.label} Cookie`, 8000);
+        if (!win.isDestroyed()) win.close();
+      } catch (err) {
+        new Notice(
+          `读取${entry.label} Cookie 失败：${err instanceof Error ? err.message : String(err)}`,
+          10000
+        );
+      }
+    };
+
+    timer = window.setInterval(() => {
+      if (finished) return;
+      if (win.isDestroyed()) {
+        stop();
+        return;
+      }
+      if (checking) return;
+      checking = true;
+      void (async () => {
+        try {
+          const result = await readCookies();
+          if (result.ok) await finish();
+        } catch {
+          // 登录过程中读取失败时继续等下一次
+        } finally {
+          checking = false;
+        }
+      })();
+    }, 1500);
+
+    win.on("closed", () => {
+      stop();
+      if (finished) return;
+      void (async () => {
+        try {
+          const result = await readCookies();
+          if (result.ok) {
+            await finish();
+          } else {
+            new Notice(`已关闭${entry.label}登录窗口，没有检测到登录 Cookie`, 8000);
+          }
+        } catch {
+          new Notice(`已关闭${entry.label}登录窗口`, 5000);
+        }
+      })();
+    });
+
+    try {
+      await win.loadURL(entry.url);
+    } catch (err) {
+      stop();
+      if (!win.isDestroyed()) win.close();
+      new Notice(
+        `打开${entry.label}登录页失败：${err instanceof Error ? err.message : String(err)}`,
+        10000
+      );
+    }
+  }
+
   async runSetup(): Promise<number> {
     this.openBackendInstallGuide();
     return -1;
@@ -822,6 +1026,46 @@ export default class InfoTrackerPlugin extends Plugin {
     await this.runCli(["status"], true);
     await this.view?.refresh();
     new Notice("已只启用可访问来源");
+  }
+
+  async addRssSource(url: string, name: string, region: string): Promise<boolean> {
+    const status = await this.readStatus();
+    if (!status) {
+      new Notice("本地增强服务未连接，无法添加来源");
+      return false;
+    }
+    const rss = status.sources.filter(
+      (source) => source.key.startsWith("rss:") && source.url
+    );
+    const feeds = rss.map((source) => ({
+      url: source.url as string,
+      name: source.label,
+      region: source.region || "cn",
+    }));
+    if (feeds.some((feed) => feed.url === url)) {
+      new Notice("这个 RSS 地址已经添加过");
+      return false;
+    }
+    const disabled = rss
+      .filter((source) => !source.enabled)
+      .map((source) => source.url as string)
+      .filter((value) => value !== url);
+    const ok = await this.backend.saveConfig({
+      sources: {
+        rss: {
+          feeds: [...feeds, { url, name: name || url, region }],
+          disabled,
+        },
+      },
+    });
+    if (!ok) {
+      new Notice("保存失败，本地增强服务未连接");
+      return false;
+    }
+    await this.runCli(["status"], true);
+    await this.view?.refresh();
+    new Notice(`已添加来源：${name || url}`, 6000);
+    return true;
   }
 
   async runWithConfirm(): Promise<number> {
@@ -2012,6 +2256,13 @@ export default class InfoTrackerPlugin extends Plugin {
       const localKey = this.app.loadLocalStorage(MOBILE_AI_KEY);
       if (typeof localKey === "string") this.settings.apiKey = localKey;
     }
+    if (!this.settings.rssFeedsInitialized) {
+      if (!(this.settings.rssFeeds || "").trim()) {
+        this.settings.rssFeeds = DEFAULT_RSS_FEEDS.join("\n");
+      }
+      this.settings.rssFeedsInitialized = true;
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {
@@ -2027,6 +2278,7 @@ export default class InfoTrackerPlugin extends Plugin {
           reasoningEffort: this.settings.reasoningEffort,
           mobileSnapshotPath: this.settings.mobileSnapshotPath,
           rssFeeds: this.settings.rssFeeds,
+          rssFeedsInitialized: this.settings.rssFeedsInitialized,
           rssDigestFolder: this.settings.rssDigestFolder,
           rssMaxItems: this.settings.rssMaxItems,
           rssWatchKeywords: this.settings.rssWatchKeywords,
@@ -2300,6 +2552,7 @@ export class TrackerHomeView extends ItemView {
   private busyTimer = 0;
   private rssQuery = "";
   private rssFilter: "all" | "unread" | "watch" = "all";
+  private simpleSourcesOpen = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: InfoTrackerPlugin) {
     super(leaf);
@@ -2517,6 +2770,8 @@ export class TrackerHomeView extends ItemView {
       text: "安装器只装增强服务，不覆盖插件，也不会影响现有 RSS 和 AI 设置；可随时卸载。",
     });
 
+    this.renderSimpleSources(root);
+
     const list = root.createDiv({ cls: "it-card" });
     const head = list.createDiv({ cls: "it-section-head" });
     const countEl = head.createEl("span");
@@ -2536,7 +2791,7 @@ export class TrackerHomeView extends ItemView {
     if (!plugin.feedUrls().length) {
       list.createDiv({
         cls: "it-hint",
-        text: "还没有 RSS 来源。打开 设置 → 第三方插件 → Under the Sun，在「RSS 地址」里一行填一个。",
+        text: "还没有 RSS 来源。点上面的「选择 RSS 来源」勾选常用来源，或添加自定义地址。",
       });
       return;
     }
@@ -2582,6 +2837,131 @@ export class TrackerHomeView extends ItemView {
 
     const listBody = list.createDiv({ cls: "it-rss-list" });
     applyFilter();
+  }
+
+  private feedHost(url: string): string {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  }
+
+  private renderSimpleSources(root: HTMLElement) {
+    const plugin = this.plugin;
+    const enabled = new Set(plugin.feedUrls());
+    const known = new Set(RSS_CATALOG.map((feed) => feed.url));
+    const customUrls = plugin.feedUrls().filter((url) => !known.has(url));
+    const cn = RSS_CATALOG.filter((feed) => feed.region === "cn");
+    const intl = RSS_CATALOG.filter((feed) => feed.region === "intl");
+    const count = (list: RssCatalogEntry[]) =>
+      `${list.filter((feed) => enabled.has(feed.url)).length}/${list.length}`;
+
+    const card = root.createEl("details", { cls: "it-card it-sources-card" });
+    card.open = this.simpleSourcesOpen;
+    card.addEventListener("toggle", () => {
+      this.simpleSourcesOpen = card.open;
+    });
+
+    const summary = card.createEl("summary", { cls: "it-sources-summary" });
+    summary.createEl("span", { cls: "it-sources-title", text: "选择 RSS 来源" });
+    summary.createEl("span", {
+      cls: "it-sources-meta",
+      text: `国内 ${count(cn)} · 国外 ${count(intl)}`,
+    });
+    summary.createEl("span", { cls: "it-sources-action" });
+
+    const activeNames = [
+      ...RSS_CATALOG.filter((feed) => enabled.has(feed.url)).map((feed) => feed.name),
+      ...customUrls.map((url) => this.feedHost(url)),
+    ];
+    summary.createEl("span", {
+      cls: "it-sources-preview",
+      text: activeNames.length
+        ? `${activeNames.slice(0, 6).join(" · ")}${
+            activeNames.length > 6 ? ` · 等 ${activeNames.length} 个来源` : ""
+          }`
+        : "还没有启用来源",
+    });
+
+    const grid = card.createEl("div", { cls: "it-sources" });
+    const changeFeed = async (url: string, on: boolean) => {
+      const urls = new Set(plugin.feedUrls());
+      if (on) urls.add(url);
+      else urls.delete(url);
+      plugin.settings.rssFeeds = Array.from(urls).join("\n");
+      await plugin.saveSettings();
+      this.simpleSourcesOpen = true;
+      await this.refresh();
+    };
+
+    const renderGroup = (
+      title: string,
+      feeds: RssCatalogEntry[],
+      wide = false
+    ) => {
+      if (!feeds.length) return;
+      const block = grid.createEl("div", {
+        cls: `it-source-group${wide ? " is-wide" : ""}`,
+      });
+      block.createEl("div", { cls: "it-source-group-title", text: title });
+      for (const feed of feeds) {
+        const row = block.createEl("label", { cls: "it-source" });
+        const checkbox = row.createEl("input", { type: "checkbox" });
+        checkbox.checked = enabled.has(feed.url);
+        row.createEl("span", { text: feed.name });
+        checkbox.onchange = () => void changeFeed(feed.url, checkbox.checked);
+      }
+    };
+
+    renderGroup("国内", cn);
+    renderGroup("国外", intl);
+    renderGroup(
+      "自定义",
+      customUrls.map((url) => ({
+        name: this.feedHost(url),
+        url,
+        region: "cn" as const,
+      })),
+      true
+    );
+
+    const footer = card.createEl("div", { cls: "it-sources-footer" });
+    const hint = footer.createEl("div", { cls: "it-hint it-sources-hint" });
+    hint.createEl("span", { text: "常用来源已预置，勾选即可启用。" });
+    const reset = footer.createEl("button", { text: "恢复默认", cls: "it-mini" });
+    reset.onclick = async () => {
+      const urls = new Set(plugin.feedUrls());
+      for (const url of DEFAULT_RSS_FEEDS) urls.add(url);
+      plugin.settings.rssFeeds = Array.from(urls).join("\n");
+      await plugin.saveSettings();
+      this.simpleSourcesOpen = true;
+      await this.refresh();
+      new Notice("已恢复默认 RSS 来源");
+    };
+    const add = footer.createEl("button", {
+      text: "+ 添加 RSS 来源",
+      cls: "it-mini it-add-source",
+    });
+    add.onclick = () =>
+      new AddSourceModal(
+        this.app,
+        async (url, name) => {
+          const urls = new Set(plugin.feedUrls());
+          if (urls.has(url)) {
+            new Notice("这个 RSS 地址已经添加过");
+            return false;
+          }
+          urls.add(url);
+          plugin.settings.rssFeeds = Array.from(urls).join("\n");
+          await plugin.saveSettings();
+          this.simpleSourcesOpen = true;
+          await this.refresh();
+          new Notice(`已添加来源：${name || url}`);
+          return true;
+        },
+        "只支持 RSS / Atom 地址；添加后会出现在「选择 RSS 来源」里。"
+      ).open();
   }
 
   private renderSimpleItems(container: HTMLElement, countEl: HTMLElement) {
@@ -3075,14 +3455,23 @@ export class TrackerHomeView extends ItemView {
       }
     }
 
+    const footer = card.createEl("div", { cls: "it-sources-footer" });
     if (intl.length) {
-      const hint = card.createEl("div", { cls: "it-hint it-sources-hint" });
+      const hint = footer.createEl("div", { cls: "it-hint it-sources-hint" });
       hint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
       hint.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
       hint.createEl("span", { text: " 时保留 " });
       hint.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
       hint.createEl("span", { text: "，不会自动翻译成中文。" });
     }
+    const addSource = footer.createEl("button", {
+      text: "+ 添加 RSS 来源",
+      cls: "it-mini it-add-source",
+    });
+    addSource.onclick = () =>
+      new AddSourceModal(this.app, (url, name, region) =>
+        this.plugin.addRssSource(url, name, region)
+      ).open();
 
     this.renderCookies(card, status);
   }
@@ -3097,26 +3486,39 @@ export class TrackerHomeView extends ItemView {
     const loginRow = card.createEl("div", { cls: "it-login-row" });
     for (const entry of LOGIN_ENTRIES) {
       const logged = !!saved[entry.key];
-      const button = loginRow.createEl("button", {
-        text: `打开${entry.label}登录页`,
-        cls: "it-mini",
+      const button = loginRow.createEl("button", { cls: "it-login-card" });
+      button.createEl("span", {
+        cls: "it-login-card-title",
+        text: this.plugin.isMobile()
+          ? `打开${entry.label}登录页`
+          : `自动登录${entry.label}`,
+      });
+      const stateText = entry.requiresLogin
+        ? logged
+          ? "已登录"
+          : "未登录"
+        : logged
+        ? "Cookie 已保存"
+        : "Cookie 可选";
+      const stateClass = logged ? "is-on" : entry.requiresLogin ? "" : "is-off";
+      button.createEl("span", {
+        cls: `it-source-badge it-login-card-state ${stateClass}`,
+        text: stateText,
       });
       button.onclick = () => {
-        window.open(entry.url, "_blank");
-        new Notice(
-          `已打开${entry.label}登录页。登录后按 F12 → Network → 刷新，复制任意请求的 Cookie。${entry.label} Cookie ${entry.validity}。`,
-          12000
-        );
+        if (this.plugin.isMobile()) {
+          window.open(entry.url, "_blank");
+          new Notice(`已打开${entry.label}登录页，登录后请手动粘贴 Cookie`, 10000);
+          return;
+        }
+        void this.plugin.autoLoginCookie(entry);
       };
-      loginRow.createEl("span", {
-        cls: `it-source-badge ${logged ? "is-on" : ""}`,
-        text: entry.requiresLogin
-          ? logged
-            ? "已登录"
-            : "未登录"
-          : logged
-          ? "Cookie 已保存"
-          : "Cookie 可选",
+    }
+
+    if (!this.plugin.isMobile()) {
+      card.createEl("div", {
+        cls: "it-hint",
+        text: "点「自动登录」后，在弹出的窗口完成登录；检测到 Cookie 会自动保存并关闭窗口。",
       });
     }
 
@@ -3137,7 +3539,9 @@ export class TrackerHomeView extends ItemView {
       text: "有效期：微博通常 7–30 天，知乎约 30 天，小红书约 7–14 天。平台也可能随时提前失效；抓不到数据时重新登录一次即可。",
     });
 
-    const form = card.createEl("div", { cls: "it-form" });
+    const manual = card.createEl("details", { cls: "it-cookie-manual" });
+    manual.createEl("summary", { text: "手动粘贴 Cookie（备用）" });
+    const form = manual.createEl("div", { cls: "it-form" });
 
     const makeField = (key: string, label: string) => {
       const input = form.createEl("input", { type: "password", cls: "it-input" });
@@ -4016,6 +4420,89 @@ class SourceTestModal extends Modal {
   }
 }
 
+class AddSourceModal extends Modal {
+  private onAdd: (url: string, name: string, region: string) => Promise<boolean>;
+  private description: string;
+
+  constructor(
+    app: App,
+    onAdd: (url: string, name: string, region: string) => Promise<boolean>,
+    description = "只支持 RSS / Atom 地址。热榜来源由本地增强服务内置，不能手动添加。"
+  ) {
+    super(app);
+    this.onAdd = onAdd;
+    this.description = description;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "添加 RSS 来源" });
+    contentEl.createEl("p", {
+      cls: "it-hint",
+      text: this.description,
+    });
+
+    const form = contentEl.createEl("div", { cls: "it-form" });
+    const urlEl = form.createEl("input", {
+      type: "text",
+      cls: "it-input",
+      placeholder: "https://example.com/feed.xml",
+    });
+    const nameEl = form.createEl("input", {
+      type: "text",
+      cls: "it-input",
+      placeholder: "名称（可选）",
+    });
+    const regionRow = form.createEl("div", { cls: "it-actions" });
+    const regionEl = regionRow.createEl("select", { cls: "it-input" });
+    regionEl.createEl("option", { value: "cn", text: "国内" });
+    regionEl.createEl("option", { value: "intl", text: "国外" });
+
+    const actions = form.createEl("div", { cls: "it-actions" });
+    const add = actions.createEl("button", { text: "添加", cls: "mod-cta" });
+    add.onclick = async () => {
+      const url = urlEl.value.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        new Notice("请填写 http(s) 开头的 RSS 地址");
+        urlEl.focus();
+        return;
+      }
+      const notice = new Notice("正在检查地址…", 0);
+      try {
+        const res = await requestUrl({ url, method: "GET", throw: false });
+        if (res.status < 200 || res.status >= 300) {
+          notice.hide();
+          new Notice(`地址返回 HTTP ${res.status}`);
+          return;
+        }
+        const items = parseFeed(res.text || "", url);
+        notice.hide();
+        if (!items.length) {
+          new Notice("没有解析到条目，可能不是标准 RSS；仍会添加，请稍后测试", 8000);
+        }
+      } catch (err) {
+        notice.hide();
+        new Notice(
+          `检查地址失败：${err instanceof Error ? err.message : String(err)}`,
+          10000
+        );
+        return;
+      }
+      const ok = await this.onAdd(url, nameEl.value.trim(), regionEl.value);
+      if (ok) this.close();
+    };
+    const cancel = actions.createEl("button", { text: "取消" });
+    cancel.onclick = () => this.close();
+
+    window.setTimeout(() => urlEl.focus(), 50);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
 class ConfirmModal extends Modal {
   private message: string;
   private onConfirm: () => void;
@@ -4210,7 +4697,7 @@ class TrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("RSS").setHeading();
     new Setting(containerEl)
       .setName("RSS 地址")
-      .setDesc("一行一个，支持 RSS / Atom")
+      .setDesc("一行一个，支持 RSS / Atom。也可以在主页「选择 RSS 来源」里勾选常用来源。")
       .addTextArea((text) => {
         text.inputEl.rows = 6;
         text.inputEl.addClass("it-textarea");
@@ -4384,7 +4871,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(simple)
       .setName("RSS 地址")
-      .setDesc("一行一个，支持 RSS / Atom。没有本地增强服务时，这里就是插件的全部来源。")
+      .setDesc("一行一个，支持 RSS / Atom。也可以在主页「选择 RSS 来源」里勾选常用来源；这里适合批量粘贴。")
       .addTextArea((text) => {
         text.inputEl.rows = 4;
         text.inputEl.addClass("it-textarea");

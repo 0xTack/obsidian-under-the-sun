@@ -133,10 +133,40 @@
 }
 
 .it-login-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
   margin-bottom: 10px;
+}
+
+.it-login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 62px;
+  padding: 9px 11px 7px;
+  text-align: left;
+  white-space: normal;
+  border-radius: var(--radius-m);
+}
+
+.it-login-card-title {
+  line-height: 1.4;
+}
+
+.it-login-card-state {
+  align-self: flex-end;
+  margin-left: 0;
+  font-size: var(--font-ui-smaller);
+}
+
+.it-source-badge.is-off {
+  color: var(--text-muted);
+}
+
+.it-source-badge.is-off::before {
+  background: var(--text-faint);
 }
 
 .it-cookie-guide {
@@ -2698,10 +2728,23 @@ h2 .it-timeline-sort b {
   line-height: 1.6;
 }
 
-.it-sources-hint {
-  margin: 10px 0 0;
+.it-sources-footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--background-modifier-border);
+}
+
+.it-sources-hint {
+  flex: 1;
+  min-width: 0;
+}
+
+.it-add-source {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .it-sources-card[open] .it-sources-preview {
@@ -2720,4 +2763,18 @@ h2 .it-timeline-sort b {
 .it-hint-strong {
   color: var(--text-normal);
   font-weight: 600;
+}
+
+.it-cookie-manual {
+  margin-top: 10px;
+}
+
+.it-cookie-manual > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.it-source-group.is-wide {
+  grid-column: 1 / -1;
 }
