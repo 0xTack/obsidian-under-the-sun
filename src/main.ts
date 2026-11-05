@@ -381,6 +381,7 @@ interface JudgmentItem {
 }
 
 interface StatusPayload {
+  root?: string;
   generated_at: string;
   version?: string;
   api?: number;
@@ -445,6 +446,27 @@ interface TopItem {
   tracked: boolean;
   has_ai: boolean;
   has_judgment?: boolean;
+}
+
+function openLocalPath(path: string): boolean {
+  const target = (path || "").trim();
+  if (!target) return false;
+  try {
+    const electron = (window as any).require?.("electron");
+    if (electron?.shell?.openPath) {
+      const result = electron.shell.openPath(target);
+      if (result && typeof result.then === "function") {
+        result.then((err: string) => {
+          if (err) void copyText(target);
+        });
+      }
+      return true;
+    }
+  } catch {
+    // 回退到复制路径
+  }
+  void copyText(target);
+  return false;
 }
 
 function openExternalUrl(url: string): void {
@@ -2191,9 +2213,9 @@ export default class InfoTrackerPlugin extends Plugin {
     await this.runCli(["ai-one", "--item", String(itemId)], true, true);
     let payload: any = readAiPayload();
     if (!(payload?.ok && payload.text)) {
-      // 偶发超时/空返回时重试一次，避免单条解读直接失败
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 700));
-      await this.runCli(["ai-one", "--item", String(itemId)], true, true);
+      // 第一次失败时降级重试：更短的上下文和输出，避开超时/超长
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 600));
+      await this.runCli(["ai-one", "--item", String(itemId), "--short"], true, true);
       payload = readAiPayload();
     }
 
@@ -4917,6 +4939,21 @@ class BackendSettingsModal extends Modal {
       cls: "it-mini",
     });
     install.onclick = () => this.plugin.openBackendInstallGuide();
+    const openDir = actions.createEl("button", {
+      text: "打开安装目录",
+      cls: "it-mini",
+    });
+    openDir.onclick = async () => {
+      const status = await this.plugin.readStatus();
+      const root = status?.root || "";
+      if (!root) {
+        new Notice("先点「检测连接」，拿到安装路径后再试");
+        return;
+      }
+      if (!openLocalPath(root)) {
+        new Notice(`安装目录已复制：${root}`, 8000);
+      }
+    };
     const save = actions.createEl("button", { text: "保存", cls: "mod-cta" });
     save.onclick = async () => {
       this.plugin.settings.backendUrl =
