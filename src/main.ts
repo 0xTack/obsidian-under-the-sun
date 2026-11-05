@@ -30,6 +30,7 @@ import { RssItem, dedupeItems, parseFeed, translateText } from "./rss";
 
 const VIEW_TYPE = "under-the-sun-home";
 const BACKEND_API = 1;
+const DAILY_DIGEST_FOLDER = "朝闻天下/日报";
 const MOBILE_AI_KEY = "under-the-sun-mobile-api-key";
 const MOBILE_SETTINGS_KEY = "under-the-sun-mobile-settings";
 
@@ -45,7 +46,6 @@ interface TrackerSettings {
   reasoningEffort: string;
   rssFeeds: string;
   rssFeedsInitialized: boolean;
-  rssDigestFolder: string;
   rssMaxItems: number;
   rssWatchKeywords: string;
   scheduleMorning: string;
@@ -71,7 +71,6 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   reasoningEffort: "medium",
   rssFeeds: "",
   rssFeedsInitialized: false,
-  rssDigestFolder: "朝闻天下/RSS日报",
   rssMaxItems: 60,
   rssWatchKeywords: "",
   scheduleMorning: "07:00",
@@ -261,6 +260,7 @@ interface StatusPayload {
   version?: string;
   api?: number;
   schedule?: { enabled?: boolean; morning?: string; evening?: string; eveningDigest?: boolean };
+  tracking_fold?: "auto" | "expanded" | "collapsed";
   vault: string;
   digest_folder: string;
   watch_folder?: string;
@@ -2309,7 +2309,6 @@ export default class InfoTrackerPlugin extends Plugin {
           mobileSnapshotPath: this.settings.mobileSnapshotPath,
           rssFeeds: this.settings.rssFeeds,
           rssFeedsInitialized: this.settings.rssFeedsInitialized,
-          rssDigestFolder: this.settings.rssDigestFolder,
           rssMaxItems: this.settings.rssMaxItems,
           rssWatchKeywords: this.settings.rssWatchKeywords,
           showStatusBar: this.settings.showStatusBar,
@@ -2384,6 +2383,7 @@ export default class InfoTrackerPlugin extends Plugin {
       if (previous) {
         item.read = previous.read;
         item.translated = previous.translated;
+        item.translatedTitle = previous.translatedTitle;
       }
     }
     this.rssItems = merged;
@@ -2399,13 +2399,45 @@ export default class InfoTrackerPlugin extends Plugin {
       return;
     }
     const day = new Date().toISOString().slice(0, 10);
-    const folder = normalizePath(
-      this.settings.rssDigestFolder || "朝闻天下/RSS日报"
+    const folder = normalizePath(DAILY_DIGEST_FOLDER);
+    const basePath = normalizePath(`${folder}/${day}.md`);
+    const existing = this.app.vault.getAbstractFileByPath(basePath);
+    if (existing instanceof TFile) {
+      const text = await this.app.vault.read(existing);
+      const isRss = /^type:\s*RSS日报/m.test(text) || /^rss:\s*true/m.test(text);
+      if (!isRss) {
+        new Notice("今天已有完整日报，RSS 模式不重复生成", 8000);
+        await this.app.workspace.getLeaf(false).openFile(existing);
+        return;
+      }
+    }
+
+    const ai = this.mobileAi();
+    const foreign = this.rssItems.filter(
+      (item) =>
+        !/[\u4e00-\u9fff]/.test(item.title) ||
+        (!!item.summary && !/[\u4e00-\u9fff]/.test(item.summary))
     );
-    const path = normalizePath(`${folder}/${day}.md`);
+    if (ai.available() && foreign.length) {
+      const notice = new Notice(`正在翻译 ${foreign.length} 条外文 RSS…`, 0);
+      for (const item of foreign) {
+        if (!item.translatedTitle && !/[\u4e00-\u9fff]/.test(item.title)) {
+          const titleZh = await ai.translate(item.title);
+          if (titleZh) item.translatedTitle = titleZh;
+        }
+        if (item.summary && !item.translated && !/[\u4e00-\u9fff]/.test(item.summary)) {
+          const summaryZh = await ai.translate(item.summary);
+          if (summaryZh) item.translated = summaryZh;
+        }
+      }
+      notice.hide();
+      await this.saveSimpleData();
+    }
+
     const lines = [
       "---",
       "type: RSS日报",
+      "rss: true",
       "cssclasses:",
       "  - it-reading-mode",
       `date: ${day}`,
@@ -2413,11 +2445,11 @@ export default class InfoTrackerPlugin extends Plugin {
       "",
       `# ${day} RSS 日报`,
       "",
-      `> 来源：${this.feedUrls().length} 个 RSS · 共 ${this.rssItems.length} 条`,
+      `> **RSS 采集** · ${this.feedUrls().length} 个来源 · 共 ${this.rssItems.length} 条`,
       "",
     ];
     for (const item of this.rssItems) {
-      lines.push(`> [!rss] ${item.title}`, ">");
+      lines.push(`> [!brief] ${item.translatedTitle || item.title}`, ">");
       const text = item.translated || item.summary;
       if (text) lines.push(`> ${text}`, ">");
       const meta = [item.feed, item.date ? item.date.slice(0, 10) : ""]
@@ -2428,15 +2460,15 @@ export default class InfoTrackerPlugin extends Plugin {
     try {
       const folderExists = this.app.vault.getAbstractFileByPath(folder);
       if (!folderExists) await this.app.vault.createFolder(folder);
-      const existing = this.app.vault.getAbstractFileByPath(path);
-      if (existing instanceof TFile) {
-        await this.app.vault.modify(existing, lines.join("\n"));
-        await this.app.workspace.getLeaf(false).openFile(existing);
+      const current = this.app.vault.getAbstractFileByPath(basePath);
+      if (current instanceof TFile) {
+        await this.app.vault.modify(current, lines.join("\n"));
+        await this.app.workspace.getLeaf(false).openFile(current);
       } else {
-        const created = await this.app.vault.create(path, lines.join("\n"));
+        const created = await this.app.vault.create(basePath, lines.join("\n"));
         await this.app.workspace.getLeaf(false).openFile(created);
       }
-      new Notice("RSS 日报已生成");
+      new Notice("RSS 日报已写入当天日报");
     } catch (err) {
       console.error("under-the-sun: 写日报失败", err);
       new Notice("写日报失败，看控制台");
@@ -2457,7 +2489,7 @@ export default class InfoTrackerPlugin extends Plugin {
       rel = this.digestRelativePath(status);
     } else {
       const day = new Date().toISOString().slice(0, 10);
-      const folder = normalizePath(this.settings.rssDigestFolder || "朝闻天下/RSS日报");
+      const folder = normalizePath(DAILY_DIGEST_FOLDER);
       rel = normalizePath(`${folder}/${day}.md`);
     }
     const file = this.app.vault.getAbstractFileByPath(rel);
@@ -2473,47 +2505,6 @@ export default class InfoTrackerPlugin extends Plugin {
     }
     const ok = await copyText(digest.markdown);
     new Notice(ok ? "今日日报已复制为 Markdown" : "复制失败，请重试");
-  }
-
-  async exportDigestHtml(): Promise<void> {
-    const digest = await this.currentDigest();
-    if (!digest) {
-      new Notice("今天还没有日报");
-      return;
-    }
-    const component = new Component();
-    component.load();
-    try {
-      const body = document.createElement("div");
-      await MarkdownRenderer.render(this.app, digest.markdown, body, "", component);
-      const day = digest.file.basename;
-      const html = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>${day} 朝闻天下</title>
-<style>
-body{max-width:820px;margin:40px auto;padding:0 20px;font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif;color:#26231f;background:#f6f2ea}
-h1,h2,h3{line-height:1.3} a{color:#b23a2f} blockquote{border-left:3px solid #b23a2f;margin:1em 0;padding:.2em 1em;background:#fffdf8}
-code{background:#efe9de;padding:.1em .35em;border-radius:3px} pre{overflow:auto;padding:12px;background:#fffdf8}
-.callout{border:1px solid #dfd8cb;border-radius:6px;padding:10px 14px;margin:12px 0;background:#fffdf8}
-.callout-title{font-weight:600}
-</style></head><body>${body.innerHTML}</body></html>`;
-      const folder = normalizePath("朝闻天下/导出");
-      if (!this.app.vault.getAbstractFileByPath(folder)) {
-        await this.app.vault.createFolder(folder);
-      }
-      const path = normalizePath(`${folder}/${day}.html`);
-      const existing = this.app.vault.getAbstractFileByPath(path);
-      if (existing instanceof TFile) {
-        await this.app.vault.modify(existing, html);
-      } else {
-        await this.app.vault.create(path, html);
-      }
-      new Notice(`已导出：${path}`);
-    } catch (err) {
-      console.error("under-the-sun: 导出 HTML 失败", err);
-      new Notice("导出失败，看控制台");
-    } finally {
-      component.unload();
-    }
   }
 
   async simpleInterpret(item: RssItem): Promise<void> {
@@ -2556,12 +2547,24 @@ code{background:#efe9de;padding:.1em .35em;border-radius:3px} pre{overflow:auto;
   }
 
   async translateItem(item: RssItem): Promise<void> {
-    const text = await translateText(item.summary || item.title);
-    if (!text) {
-      new Notice("翻译失败，或内容已经是中文");
+    const ai = this.mobileAi();
+    const needsTitle = !/[\u4e00-\u9fff]/.test(item.title);
+    const needsSummary = !!item.summary && !/[\u4e00-\u9fff]/.test(item.summary);
+    if (!needsTitle && !needsSummary) {
+      new Notice("内容已经是中文");
       return;
     }
-    item.translated = text;
+    let titleZh = needsTitle && ai.available() ? await ai.translate(item.title) : "";
+    let summaryZh =
+      needsSummary && ai.available() ? await ai.translate(item.summary) : "";
+    if (needsTitle && !titleZh) titleZh = await translateText(item.title);
+    if (needsSummary && !summaryZh) summaryZh = await translateText(item.summary);
+    if (!titleZh && !summaryZh) {
+      new Notice("翻译失败，请稍后重试");
+      return;
+    }
+    if (titleZh) item.translatedTitle = titleZh;
+    if (summaryZh) item.translated = summaryZh;
     await this.saveSimpleData();
     await this.view?.refresh();
   }
@@ -3001,14 +3004,16 @@ export class TrackerHomeView extends ItemView {
     const keywords = plugin.rssKeywords();
     const matches = (item: RssItem) =>
       keywords.some((keyword) =>
-        `${item.title} ${item.summary}`.toLowerCase().includes(keyword)
+        `${item.translatedTitle || item.title} ${item.translated || item.summary}`.toLowerCase().includes(keyword)
       );
     const items = plugin.rssItems.filter((item) => {
       if (this.rssFilter === "unread" && item.read) return false;
       if (this.rssFilter === "watch" && !matches(item)) return false;
       if (
         query &&
-        !`${item.title} ${item.summary} ${item.feed}`.toLowerCase().includes(query)
+        !`${item.translatedTitle || item.title} ${item.translated || item.summary} ${item.feed}`
+          .toLowerCase()
+          .includes(query)
       ) {
         return false;
       }
@@ -3025,7 +3030,10 @@ export class TrackerHomeView extends ItemView {
       const row = container.createDiv({
         cls: `it-news${item.read ? " is-read" : ""}`,
       });
-      const title = row.createDiv({ cls: "it-news-title", text: item.title });
+      const title = row.createDiv({
+        cls: "it-news-title",
+        text: item.translatedTitle || item.title,
+      });
       title.onclick = () => {
         if (item.link) window.open(item.link);
         if (!item.read) void plugin.toggleRead(item);
@@ -4029,7 +4037,10 @@ class JudgmentPickerModal extends Modal {
 
     for (const item of this.items.slice(0, 30)) {
       const row = contentEl.createEl("div", { cls: "it-news" });
-      const title = row.createEl("div", { cls: "it-news-title", text: item.title });
+      const title = row.createEl("div", {
+        cls: "it-news-title",
+        text: item.title,
+      });
       title.onclick = () => window.open(item.url);
       row.createEl("div", {
         cls: "it-news-meta",
@@ -4746,18 +4757,6 @@ class TrackerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("RSS 日报目录")
-      .setDesc("生成 RSS 日报的位置")
-      .addText((text) =>
-        text
-          .setPlaceholder("朝闻天下/RSS日报")
-          .setValue(settings.rssDigestFolder)
-          .onChange((value) => {
-            settings.rssDigestFolder = value.trim() || DEFAULT_SETTINGS.rssDigestFolder;
-          })
-      );
-
-    new Setting(containerEl)
       .setName("最多保留条数")
       .setDesc("本地保留的 RSS 新闻数量")
       .addText((text) =>
@@ -4918,19 +4917,6 @@ class TrackerSettingTab extends PluginSettingTab {
             this.plugin.settings.rssFeeds = value;
           });
       });
-
-    new Setting(simple)
-      .setName("RSS 日报目录")
-      .setDesc("轻量模式生成 RSS 日报的位置")
-      .addText((text) =>
-        text
-          .setPlaceholder("朝闻天下/RSS日报")
-          .setValue(this.plugin.settings.rssDigestFolder)
-          .onChange((value) => {
-            this.plugin.settings.rssDigestFolder =
-              value.trim() || DEFAULT_SETTINGS.rssDigestFolder;
-          })
-      );
 
     new Setting(simple)
       .setName("最多保留条数")
@@ -5106,6 +5092,24 @@ class TrackerSettingTab extends PluginSettingTab {
           toggle.setValue(false);
         })
       );
+    new Setting(containerEl)
+      .setName("跟踪报告折叠")
+      .setDesc("单条跟踪默认展开，多条默认折叠；也可以固定全部展开或全部折叠。")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("auto", "自动（单条展开 / 多条折叠）");
+        dropdown.addOption("expanded", "全部展开");
+        dropdown.addOption("collapsed", "全部折叠");
+        dropdown.setValue(status?.tracking_fold || "auto");
+        dropdown.onChange(async (value) => {
+          await this.plugin.saveOverrides({
+            digest: { tracking_fold: value },
+          });
+          await this.plugin.runCli(["status"], true);
+          await this.plugin.view?.refresh();
+          new Notice("跟踪报告折叠方式已保存");
+        });
+      });
+
     const filters = status?.filters || {};
     const dedupe = status?.dedupe || {};
 
@@ -5391,21 +5395,13 @@ class TrackerSettingTab extends PluginSettingTab {
       li.createEl("strong", { text: title + "：" });
       li.createEl("span", { text: desc });
     }
-    new Setting(containerEl).setName("日报导出").setHeading();
+    new Setting(containerEl).setName("日报").setHeading();
     new Setting(containerEl)
       .setName("复制今日日报")
       .setDesc("把今天的日报复制成 Markdown，方便粘贴到聊天、邮件或其他笔记。")
       .addButton((button) =>
         button.setButtonText("复制 Markdown").onClick(() => {
           void this.plugin.copyDigest();
-        })
-      );
-    new Setting(containerEl)
-      .setName("导出为 HTML")
-      .setDesc("导出到 朝闻天下/导出/YYYY-MM-DD.html，可发给别人或浏览器打开。")
-      .addButton((button) =>
-        button.setButtonText("导出 HTML").onClick(() => {
-          void this.plugin.exportDigestHtml();
         })
       );
 
