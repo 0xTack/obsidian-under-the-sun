@@ -2167,12 +2167,12 @@ export default class InfoTrackerPlugin extends Plugin {
 
     if (this.isMobile()) {
       if (!item) {
-        new Notice("手机快照里找不到这条新闻，等电脑端再同步一次");
+        new Notice("这条新闻的内容还没同步到手机，AI 暂时无法解读。可以换一条，或等 iCloud 同步完成。", 10000);
         return;
       }
       const ai = this.mobileAi();
       if (!ai.available()) {
-        new Notice("先在 设置 → 第三方插件 → 朝闻天下 里启用 AI 并填 API Key");
+        new Notice("还没有配置 AI：设置 → 第三方插件 → Under the Sun → AI，填 API 地址、模型和 Key。", 12000);
         return;
       }
       new Notice("正在生成 AI 解读…");
@@ -2240,9 +2240,49 @@ export default class InfoTrackerPlugin extends Plugin {
     }
   }
 
+  private async generateAllAiMobile() {
+    const status = await this.readStatus();
+    if (!status) {
+      new Notice("先刷新一次，再点一键解读");
+      return;
+    }
+    const items = (status.mobile_items || []).filter((item) => !item.has_ai);
+    if (!items.length) {
+      new Notice("今天所有新闻都已经解读过");
+      return;
+    }
+    const ai = this.mobileAi();
+    if (!ai.available()) {
+      new Notice(
+        "还没有配置 AI：设置 → 第三方插件 → Under the Sun → AI，填 API 地址、模型和 Key。",
+        12000
+      );
+      return;
+    }
+    let done = 0;
+    let failed = 0;
+    let attempted = 0;
+    const notice = new Notice(`AI 解读 0/${items.length}`, 0);
+    for (const item of items) {
+      const text = await ai.interpret(item.title, item.summary || "");
+      attempted += 1;
+      if (!text) {
+        failed += 1;
+      } else {
+        const ok = await this.insertAi(item.id, text);
+        if (ok) done += 1;
+        else failed += 1;
+      }
+      notice.setMessage(`AI 解读 ${attempted}/${items.length}`);
+    }
+    notice.hide();
+    new Notice(`AI 解读完成：成功 ${done}，失败 ${failed}`, 10000);
+    await this.view?.refresh();
+  }
+
   async generateAllAi(day: string) {
     if (this.isMobile()) {
-      new Notice("手机端暂不支持一键批量解读，请到电脑端");
+      await this.generateAllAiMobile();
       return;
     }
     const status = await this.readStatus();
@@ -2976,6 +3016,17 @@ export class TrackerHomeView extends ItemView {
         ? "点「AI 解读」会用这台手机的 API Key 生成，结果写回日报笔记；「AI 交流」可以继续追问。"
         : "还没有配置 AI。到 设置 → 第三方插件 → Under the Sun 填 API 地址、模型和 Key，就能在手机上解读。",
     });
+    if (!aiReady) {
+      const openAi = card.createDiv({ cls: "it-actions" }).createEl("button", {
+        text: "去填写 AI 设置",
+        cls: "it-mini mod-cta",
+      });
+      openAi.onclick = () => {
+        const app = this.app as any;
+        app.setting?.open?.();
+        app.setting?.openTabById?.(this.plugin.manifest.id);
+      };
+    }
 
     for (const item of items.slice(0, 40)) {
       const row = card.createEl("div", { cls: `it-news${item.tracked ? " is-tracked" : ""}` });
@@ -4615,14 +4666,14 @@ class ChatModal extends Modal {
         if (!item) {
           this.messages.pop();
           this.inputEl.value = userText;
-          new Notice("手机快照里找不到这条新闻，等电脑端再同步一次");
+          new Notice("这条新闻的内容还没同步到手机，AI 无法就它回答。可以换一条，或等 iCloud 同步完成。", 10000);
           return;
         }
         const ai = this.plugin.mobileAi();
         if (!ai.available()) {
           this.messages.pop();
           this.inputEl.value = userText;
-          new Notice("先在 设置 → 第三方插件 → 朝闻天下 里启用 AI 并填 API Key");
+          new Notice("还没有配置 AI：设置 → 第三方插件 → Under the Sun → AI，填 API 地址、模型和 Key。", 12000);
           return;
         }
         const judged = status?.judgments?.find((row) => row.item_id === this.itemId);
@@ -4648,7 +4699,7 @@ class ChatModal extends Modal {
         if (!answer) {
           this.messages.pop();
           this.inputEl.value = userText;
-          new Notice(`AI 交流失败：${ai.error || "检查 API Key"}`);
+          new Notice(`AI 交流失败：${friendlyAiError(ai.error || "")}`, 12000);
           return;
         }
         this.title = item.title || this.title;
@@ -5202,7 +5253,12 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    const secM3 = this.settingSection(sections, "AI", "服务商、Key、模型", false);
+    const secM3 = this.settingSection(
+      sections,
+      "AI",
+      "服务商、Key、模型",
+      !settings.aiEnabled || !settings.apiKey
+    );
     new Setting(secM3)
       .setName("启用 AI")
       .setDesc("AI 解读、AI 交流需要打开；抓取仍然只在电脑端")
