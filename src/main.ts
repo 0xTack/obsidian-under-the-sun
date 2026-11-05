@@ -25,7 +25,7 @@ import {
   WatchOrder,
 } from "./watch-note";
 
-import { BackendClient, BackendHealth } from "./backend";
+import { BackendClient, BackendHealth, SourceTestResult } from "./backend";
 import { RssItem, dedupeItems, parseFeed, translateText } from "./rss";
 
 const VIEW_TYPE = "under-the-sun-home";
@@ -262,6 +262,23 @@ interface TopItem {
   has_judgment?: boolean;
 }
 
+function openExternalUrl(url: string): void {
+  const target = (url || "").trim();
+  if (!target) return;
+  if (Platform.isDesktopApp) {
+    try {
+      const electron = (window as any).require?.("electron");
+      if (electron?.shell?.openExternal) {
+        void electron.shell.openExternal(target);
+        return;
+      }
+    } catch {
+      // 回退到浏览器标准打开方式
+    }
+  }
+  window.open(target, "_blank", "noopener,noreferrer");
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -321,13 +338,7 @@ export default class InfoTrackerPlugin extends Plugin {
   lastLog = "";
   backend!: BackendClient;
   backendHealth: BackendHealth = { ok: false };
-  sourceTestResults: Array<{
-    name: string;
-    url: string;
-    ok: boolean;
-    status?: number;
-    error?: string;
-  }> = [];
+  sourceTestResults: SourceTestResult[] = [];
   private backendWarned = false;
   rssItems: RssItem[] = [];
   runStartedAt = 0;
@@ -585,7 +596,7 @@ export default class InfoTrackerPlugin extends Plugin {
       }
       if (compareVersion(found.version, current) > 0) {
         new Notice(`发现新版本 ${found.version}（当前 ${current}），正在打开发布页`, 8000);
-        if (found.url) window.open(found.url);
+        if (found.url) openExternalUrl(found.url);
       } else {
         new Notice(`已是最新版本 ${current}`);
       }
@@ -617,7 +628,7 @@ export default class InfoTrackerPlugin extends Plugin {
   }
 
   openBackendInstallGuide() {
-    window.open("https://0xtack.github.io/TokenPeek/under-the-sun/#install", "_blank");
+    openExternalUrl("https://0xtack.github.io/TokenPeek/under-the-sun/#install");
   }
 
   openInstallGuide() {
@@ -649,15 +660,120 @@ export default class InfoTrackerPlugin extends Plugin {
     if (this.backendHealth.ok !== was) await this.view?.refresh();
   }
 
+  private aiBaseUrl(raw: string): string {
+    return (raw.trim() || this.settings.apiBaseUrl || "https://api.deepseek.com/v1").replace(
+      /\/+$/,
+      ""
+    );
+  }
+
+  private aiErrorMessage(status: number, text: string): string {
+    let message = "";
+    try {
+      const data = JSON.parse(text || "{}");
+      message = data?.error?.message || data?.message || "";
+    } catch {
+      message = (text || "").slice(0, 200);
+    }
+    if (status === 401 || status === 403) return "API Key 无效或没有权限";
+    if (status === 404) return `模型不存在或地址错误${message ? "：" + message : ""}`;
+    return `HTTP ${status}${message ? "：" + message : ""}`;
+  }
+
+  async listAiModels(
+    baseUrl: string,
+    apiKey: string
+  ): Promise<{ ok: boolean; models: string[]; error?: string }> {
+    const key = apiKey.trim();
+    if (!key) {
+      const result = await this.backend.aiModels();
+      if (result) return result;
+      return { ok: false, models: [], error: "请先填写 API Key" };
+    }
+    try {
+      const res = await requestUrl({
+        url: `${this.aiBaseUrl(baseUrl)}/models`,
+        method: "GET",
+        headers: { Authorization: `Bearer ${key}` },
+        throw: false,
+      });
+      if (res.status < 200 || res.status >= 300) {
+        return { ok: false, models: [], error: this.aiErrorMessage(res.status, res.text || "") };
+      }
+      const data = (res.json || {}) as { data?: Array<{ id?: string }> };
+      const models = Array.from(
+        new Set((data.data || []).map((item) => item.id).filter((id): id is string => !!id))
+      ).sort();
+      return { ok: true, models };
+    } catch (err) {
+      return {
+        ok: false,
+        models: [],
+        error: `请求失败：${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  async testAiConnection(
+    baseUrl: string,
+    model: string,
+    apiKey: string
+  ): Promise<{ ok: boolean; message: string }> {
+    const key = apiKey.trim();
+    if (!key) {
+      const result = await this.backend.aiTest();
+      if (result) return result;
+      return {
+        ok: false,
+        message: "请先填写 API Key；留空测试已保存的 Key 需要本地增强服务",
+      };
+    }
+    if (!model.trim()) return { ok: false, message: "请先选择或填写模型" };
+    try {
+      const res = await requestUrl({
+        url: `${this.aiBaseUrl(baseUrl)}/chat/completions`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: model.trim(),
+          messages: [{ role: "user", content: "只回复 ok" }],
+          max_tokens: 32,
+          temperature: 0,
+          stream: false,
+        }),
+        throw: false,
+      });
+      if (res.status >= 200 && res.status < 300) {
+        return { ok: true, message: `连接成功：${model.trim()} 可用` };
+      }
+      return { ok: false, message: this.aiErrorMessage(res.status, res.text || "") };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `请求失败：${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
   async runSetup(): Promise<number> {
     this.openBackendInstallGuide();
     return -1;
   }
 
   async testSources(): Promise<void> {
-    const results = await this.backend.testSources();
-    if (!results) {
+    if (!this.backendHealth.ok) await this.checkBackend();
+    if (!this.backendHealth.ok) {
       new Notice("本地增强服务未连接，无法测试来源");
+      return;
+    }
+    const notice = new Notice("正在测试热榜和 RSS 来源，受网络环境影响可能较慢…", 0);
+    const results = await this.backend.testSources();
+    notice.hide();
+    if (!results) {
+      new Notice("测试失败：本地增强服务未连接");
       return;
     }
     this.sourceTestResults = results;
@@ -668,29 +784,41 @@ export default class InfoTrackerPlugin extends Plugin {
 
   async applyReachableSources(): Promise<void> {
     if (!this.sourceTestResults.length) {
-      new Notice("先点「测试 RSS 来源」");
+      new Notice("先点「测试所有来源」");
       return;
     }
     const status = await this.readStatus();
-    const rss = (status?.sources || []).filter(
-      (source) => source.key.startsWith("rss:") && source.url
+    const sources = status?.sources || [];
+    const failedKeys = new Set(
+      this.sourceTestResults.filter((item) => !item.ok && item.key).map((item) => item.key as string)
     );
-    const unreachable = new Set(
-      this.sourceTestResults.filter((item) => !item.ok).map((item) => item.url)
+    const failedUrls = new Set(
+      this.sourceTestResults.filter((item) => !item.ok && item.url).map((item) => item.url)
     );
+    const rss = sources.filter((source) => source.key.startsWith("rss:") && source.url);
     const disabled = rss
-      .filter((source) => !source.enabled || unreachable.has(source.url || ""))
+      .filter(
+        (source) =>
+          !source.enabled ||
+          failedKeys.has(source.key) ||
+          failedUrls.has(source.url || "")
+      )
       .map((source) => source.url as string);
-    const ok = await this.backend.saveConfig({
-      sources: { rss: { disabled } },
-    });
+    const patch: Record<string, { enabled: false } | { disabled: string[] }> = {
+      rss: { disabled },
+    };
+    for (const source of sources) {
+      if (!source.key || source.key === "rss" || source.key.startsWith("rss:")) continue;
+      if (failedKeys.has(source.key)) patch[source.key] = { enabled: false };
+    }
+    const ok = await this.backend.saveConfig({ sources: patch });
     if (!ok) {
       new Notice("保存失败，本地增强服务未连接");
       return;
     }
     await this.runCli(["status"], true);
     await this.view?.refresh();
-    new Notice("已只启用可访问的 RSS 来源");
+    new Notice("已只启用可访问来源");
   }
 
   async runWithConfirm(): Promise<number> {
@@ -2486,7 +2614,7 @@ export class TrackerHomeView extends ItemView {
       });
       const title = row.createDiv({ cls: "it-news-title", text: item.title });
       title.onclick = () => {
-        if (item.link) window.open(item.link);
+        if (item.link) openExternalUrl(item.link);
         if (!item.read) void plugin.toggleRead(item);
       };
       if (matches(item)) {
@@ -2644,7 +2772,7 @@ export class TrackerHomeView extends ItemView {
     for (const item of items.slice(0, 8)) {
       const row = card.createEl("div", { cls: "it-judgment" });
       const title = row.createEl("div", { cls: "it-judgment-claim", text: item.claim });
-      title.onclick = () => window.open(item.url);
+      title.onclick = () => openExternalUrl(item.url);
 
       const meta = row.createEl("div", { cls: "it-judgment-meta" });
       const counts = item.evidence_counts;
@@ -2669,7 +2797,7 @@ export class TrackerHomeView extends ItemView {
       }
 
       const open = actions.createEl("button", { text: "原文", cls: "it-mini" });
-      open.onclick = () => window.open(item.url);
+      open.onclick = () => openExternalUrl(item.url);
     }
 
     if (this.plugin.isMobile()) {
@@ -2765,6 +2893,10 @@ export class TrackerHomeView extends ItemView {
         const a = first.createEl("a", { text: item.first_title, cls: "it-history-link" });
         a.href = item.first_url;
         a.target = "_blank";
+        a.onclick = (event) => {
+          event.preventDefault();
+          openExternalUrl(item.first_url);
+        };
       } else {
         first.setText("还没有历史记录，会随着抓取慢慢积累");
       }
@@ -2853,6 +2985,10 @@ export class TrackerHomeView extends ItemView {
       const link = row.createEl("a", { text: item.headline, cls: "it-alert-title" });
       link.href = item.url;
       link.target = "_blank";
+      link.onclick = (event) => {
+        event.preventDefault();
+        openExternalUrl(item.url);
+      };
       const meta = row.createEl("div", { cls: "it-alert-meta" });
       meta.setText(`${item.source} · ${item.time.slice(5, 16)} · `);
       const noteLink = meta.createEl("a", { text: "打开链条", cls: "it-alert-note" });
@@ -2962,7 +3098,7 @@ export class TrackerHomeView extends ItemView {
         cls: "it-mini",
       });
       button.onclick = () => {
-        window.open(entry.url, "_blank");
+        openExternalUrl(entry.url);
         new Notice(
           `已打开${entry.label}登录页。登录后按 F12 → Network → 刷新，复制任意请求的 Cookie。${entry.label} Cookie ${entry.validity}。`,
           12000
@@ -3063,7 +3199,7 @@ export class TrackerHomeView extends ItemView {
       for (const text of [
         "打开 DeepSeek 开放平台，注册或登录。",
         "在「API Keys」里创建一个 Key，复制保存。",
-        "回到这里：API 地址填 https://api.deepseek.com/v1，模型选 deepseek-flash。",
+        "回到这里：API 地址填 https://api.deepseek.com/v1，点「获取模型」选择可用模型。",
         "把 Key 粘贴到下面，点「保存」或「测试连接」。",
       ]) {
         steps.createEl("li", { text });
@@ -3072,7 +3208,7 @@ export class TrackerHomeView extends ItemView {
         text: "去 DeepSeek 获取 API Key",
         cls: "mod-cta",
       });
-      open.onclick = () => window.open("https://platform.deepseek.com/api_keys", "_blank");
+      open.onclick = () => openExternalUrl("https://platform.deepseek.com/api_keys");
     }
 
     const form = card.createEl("div", { cls: "it-form" });
@@ -3088,23 +3224,57 @@ export class TrackerHomeView extends ItemView {
 
     const modelRow = form.createEl("div", { cls: "it-actions" });
     const modelSelect = modelRow.createEl("select", { cls: "it-input" });
-    ["deepseek-flash", "deepseek-pro", "自定义"].forEach((name) => {
-      const opt = modelSelect.createEl("option", { value: name, text: name });
-      if ((status?.ai?.model || "") === name) opt.selected = true;
-    });
     const model = form.createEl("input", { type: "text", cls: "it-input" });
     model.placeholder = "自定义模型名";
     model.value = status?.ai?.model || "";
-    const known = ["deepseek-flash", "deepseek-pro"];
-    if (known.includes(status?.ai?.model || "")) {
-      modelSelect.value = status?.ai?.model || "";
-      model.toggleClass("is-hidden", true);
-    } else {
-      modelSelect.value = "自定义";
-    }
+
+    const fillModelSelect = (models: string[], current: string) => {
+      modelSelect.empty();
+      for (const name of models) {
+        modelSelect.createEl("option", { value: name, text: name });
+      }
+      modelSelect.createEl("option", { value: "自定义", text: "自定义" });
+      if (current && models.includes(current)) {
+        modelSelect.value = current;
+        model.value = current;
+        model.toggleClass("is-hidden", true);
+      } else if (current) {
+        modelSelect.value = "自定义";
+        model.value = current;
+        model.toggleClass("is-hidden", false);
+      } else {
+        modelSelect.value = models[0] || "自定义";
+        model.value = models[0] || "";
+        model.toggleClass("is-hidden", modelSelect.value !== "自定义");
+      }
+    };
+
+    const knownModels = ["deepseek-flash", "deepseek-v4-pro"];
+    const savedModel = status?.ai?.model || "";
+    fillModelSelect(
+      Array.from(new Set([...knownModels, ...(savedModel ? [savedModel] : [])])),
+      savedModel
+    );
     modelSelect.onchange = () => {
       model.toggleClass("is-hidden", modelSelect.value !== "自定义");
       if (modelSelect.value !== "自定义") model.value = modelSelect.value;
+    };
+
+    const modelHint = form.createEl("div", { cls: "it-hint" });
+    modelHint.setText("模型名以「获取模型」返回的列表为准。");
+
+    const fetchModels = modelRow.createEl("button", { text: "获取模型", cls: "it-mini" });
+    fetchModels.onclick = async () => {
+      const notice = new Notice("正在读取可用模型…", 0);
+      const result = await this.plugin.listAiModels(base.value, key.value);
+      notice.hide();
+      if (!result.ok || !result.models.length) {
+        new Notice(result.error || "没有返回可用模型", 10000);
+        return;
+      }
+      fillModelSelect(result.models, model.value.trim() || result.models[0]);
+      modelHint.setText(`已获取 ${result.models.length} 个可用模型。`);
+      new Notice(`已获取 ${result.models.length} 个可用模型`, 5000);
     };
 
     const key = form.createEl("input", { type: "password", cls: "it-input" });
@@ -3139,12 +3309,13 @@ export class TrackerHomeView extends ItemView {
       await this.refresh();
 
       if (enabledValue) {
-        await this.plugin.runCli(["ai-test"], true);
-        const line = this.plugin.lastLog
-          .split("\n")
-          .filter((l) => l.includes("AI "))
-          .pop();
-        new Notice(line ? line.replace(/^\[[^\]]+\]\s*/, "") : "设置已保存");
+        const result = await this.plugin.testAiConnection(
+          base.value,
+          model.value,
+          typedKey
+        );
+        new Notice(`已保存。${result.message}`, result.ok ? 6000 : 12000);
+        modelHint.setText(result.message);
       } else {
         new Notice("已保存（AI 未启用）");
       }
@@ -3152,14 +3323,28 @@ export class TrackerHomeView extends ItemView {
 
     const test = actions.createEl("button", { text: "测试连接" });
     test.onclick = async () => {
-      await this.plugin.runCli(["ai-test"]);
-      const line = this.plugin.lastLog.split("\n").filter((l) => l.includes("AI ")).pop();
-      if (line) new Notice(line.replace(/^\[[^\]]+\]\s*/, ""));
+      if (!key.value.trim() && !status?.ai?.has_key) {
+        new Notice("请先填写 API Key");
+        return;
+      }
+      if (!model.value.trim()) {
+        new Notice("请先选择或填写模型");
+        return;
+      }
+      const notice = new Notice("正在测试 AI 连接…", 0);
+      const result = await this.plugin.testAiConnection(
+        base.value,
+        model.value,
+        key.value.trim()
+      );
+      notice.hide();
+      modelHint.setText(result.message);
+      new Notice(result.message, result.ok ? 5000 : 12000);
     };
 
     card.createEl("div", {
       cls: "it-hint",
-      text: "任何 OpenAI 兼容接口都行：DeepSeek、Kimi、通义、Ollama、OpenAI。填完点「测试连接」。",
+      text: "任何 OpenAI 兼容接口都行：DeepSeek、Kimi、通义、Ollama、OpenAI。先点「获取模型」，再点「测试连接」。",
     });
   }
 
@@ -3387,7 +3572,7 @@ class JudgmentPickerModal extends Modal {
     for (const item of this.items.slice(0, 30)) {
       const row = contentEl.createEl("div", { cls: "it-news" });
       const title = row.createEl("div", { cls: "it-news-title", text: item.title });
-      title.onclick = () => window.open(item.url);
+      title.onclick = () => openExternalUrl(item.url);
       row.createEl("div", {
         cls: "it-news-meta",
         text: `${item.source} · ${item.topic}`,
@@ -3730,26 +3915,10 @@ class ChatModal extends Modal {
 }
 
 class SourceTestModal extends Modal {
-  private results: Array<{
-    name: string;
-    url: string;
-    ok: boolean;
-    status?: number;
-    error?: string;
-  }>;
+  private results: SourceTestResult[];
   private onApply: () => void;
 
-  constructor(
-    app: App,
-    results: Array<{
-      name: string;
-      url: string;
-      ok: boolean;
-      status?: number;
-      error?: string;
-    }>,
-    onApply: () => void
-  ) {
+  constructor(app: App, results: SourceTestResult[], onApply: () => void) {
     super(app);
     this.results = results;
     this.onApply = onApply;
@@ -3757,25 +3926,56 @@ class SourceTestModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
+    this.modalEl.addClass("it-source-test-modal");
     contentEl.empty();
-    contentEl.createEl("h2", { text: "RSS 来源连通性" });
+    contentEl.createEl("h2", { text: "来源连通性" });
     contentEl.createEl("p", {
       cls: "it-hint",
-      text: "只测试 RSS 源；被阻断或超时的源会标红。外国源是否可用取决于本地网络或代理。",
+      text: "逐个测试热榜与 RSS 源。结果取决于本机网络、代理和本地增强服务的运行环境；被阻断或超时的源会被跳过。",
     });
+    contentEl.createEl("p", {
+      cls: "it-hint",
+      text: "国外来源建议打开 AI：抓取后会翻译成中文摘要。",
+    });
+
+    const okCount = (rows: SourceTestResult[]) => rows.filter((row) => row.ok).length;
+    const cn = this.results.filter((item) => item.region !== "intl");
+    const intl = this.results.filter((item) => item.region === "intl");
+    contentEl.createDiv({
+      cls: "it-source-test-summary",
+      text: `国内 ${okCount(cn)}/${cn.length} · 国外 ${okCount(intl)}/${intl.length} · 合计 ${okCount(this.results)}/${this.results.length}`,
+    });
+
     const list = contentEl.createDiv({ cls: "it-source-test-list" });
-    for (const item of this.results) {
-      const row = list.createDiv({ cls: "it-source-test-row" });
-      row.createEl("span", {
-        cls: `it-source-badge ${item.ok ? "is-on" : ""}`,
-        text: item.ok ? "可访问" : "不可访问",
+    for (const [label, rows] of [
+      ["国内", cn],
+      ["国外", intl],
+    ] as Array<[string, SourceTestResult[]]>) {
+      if (!rows.length) continue;
+      list.createDiv({
+        cls: "it-source-test-group",
+        text: `${label} · ${okCount(rows)}/${rows.length}`,
       });
-      row.createEl("span", { cls: "it-source-test-name", text: item.name });
-      row.createEl("span", {
-        cls: "it-source-test-state",
-        text: item.ok ? "" : item.error || (item.status ? `HTTP ${item.status}` : ""),
-      });
+      for (const item of rows) {
+        const row = list.createDiv({ cls: "it-source-test-row" });
+        row.createEl("span", {
+          cls: `it-source-badge ${item.ok ? "is-on" : ""}`,
+          text: item.ok ? "可访问" : "不可访问",
+        });
+        row.createEl("span", { cls: "it-source-test-name", text: item.name });
+        row.createEl("span", {
+          cls: "it-source-kind",
+          text: item.kind === "rss" ? "RSS" : "热榜",
+        });
+        row.createEl("span", {
+          cls: "it-source-test-state",
+          text: item.ok
+            ? `${item.count ?? 0} 条`
+            : item.error || (item.status ? `HTTP ${item.status}` : ""),
+        });
+      }
     }
+
     const actions = contentEl.createDiv({ cls: "it-actions" });
     const apply = actions.createEl("button", {
       text: "只启用可访问来源",
@@ -4048,7 +4248,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("模型")
-      .setDesc("默认 deepseek-flash；也可以填任何 OpenAI 兼容模型名")
+      .setDesc("点主页 AI 卡片的「获取模型」读取账号可用模型；也可以填任何 OpenAI 兼容模型名")
       .addText((text) =>
         text
           .setPlaceholder("deepseek-flash")
@@ -4247,21 +4447,25 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).setName("来源连通性").setHeading();
     new Setting(containerEl)
-      .setName("测试 RSS 来源")
-      .setDesc("检查每个 RSS 源在当前网络或代理下是否可访问。外国源是否可用取决于本地网络。")
+      .setName("测试所有来源")
+      .setDesc("逐个检查热榜和 RSS 源。结果取决于本机网络、代理和本地增强服务的运行环境。")
       .addButton((button) =>
         button.setButtonText("开始测试").onClick(() => {
           void this.plugin.testSources();
         })
       );
     new Setting(containerEl)
-      .setName("只启用可访问的 RSS")
-      .setDesc("根据上次测试结果，关闭不可达的源；手动关闭的源会保留。")
+      .setName("只启用可访问的来源")
+      .setDesc("根据上次测试关闭不可达的热榜和 RSS 源；手动关闭的源会保留。")
       .addButton((button) =>
         button.setButtonText("应用").onClick(() => {
           void this.plugin.applyReachableSources();
         })
       );
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "国外来源建议打开 AI：抓取后会翻译成中文摘要。没有代理时，被阻断的源会被跳过。",
+    });
 
     const status = await this.plugin.readStatus();
 
@@ -4604,7 +4808,7 @@ class TrackerSettingTab extends PluginSettingTab {
       .setDesc("通过 Obsidian 市场自动更新。本地增强服务的更新在「本地增强服务」里检测。")
       .addButton((button) =>
         button.setButtonText("打开市场页").onClick(() => {
-          window.open("https://community.obsidian.md/plugins/under-the-sun", "_blank");
+          openExternalUrl("https://community.obsidian.md/plugins/under-the-sun");
         })
       );
 
@@ -4663,9 +4867,8 @@ class TrackerSettingTab extends PluginSettingTab {
           .setButtonText("报告问题")
           .setClass("it-mini")
           .onClick(() => {
-            window.open(
-              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=bug_report.md",
-              "_blank"
+            openExternalUrl(
+              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=bug_report.md"
             );
           })
       )
@@ -4674,9 +4877,8 @@ class TrackerSettingTab extends PluginSettingTab {
           .setButtonText("功能建议")
           .setClass("it-mini")
           .onClick(() => {
-            window.open(
-              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=feature_request.md",
-              "_blank"
+            openExternalUrl(
+              "https://github.com/0xTack/obsidian-under-the-sun/issues/new?template=feature_request.md"
             );
           })
       )
@@ -4685,7 +4887,7 @@ class TrackerSettingTab extends PluginSettingTab {
           .setButtonText("作者主页")
           .setClass("it-mini")
           .onClick(() => {
-            window.open("https://github.com/0xTack", "_blank");
+            openExternalUrl("https://github.com/0xTack");
           })
       );
   }

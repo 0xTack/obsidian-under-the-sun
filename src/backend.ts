@@ -12,6 +12,18 @@ export interface BackendResult {
   output: string;
 }
 
+export interface SourceTestResult {
+  key?: string;
+  name: string;
+  url: string;
+  kind?: "hot" | "rss" | "config" | string;
+  region?: string;
+  ok: boolean;
+  status?: number;
+  count?: number;
+  error?: string;
+}
+
 /**
  * 本地本地增强服务的唯一入口。
  *
@@ -124,9 +136,7 @@ export class BackendClient {
     }
   }
 
-  async testSources(): Promise<
-    Array<{ name: string; url: string; ok: boolean; status?: number; error?: string }> | null
-  > {
+  async testSources(): Promise<SourceTestResult[] | null> {
     if (!this.configured) return null;
     try {
       const res = await requestUrl({
@@ -136,16 +146,51 @@ export class BackendClient {
         throw: false,
       });
       if (res.status < 200 || res.status >= 300) return null;
-      const data = (res.json || {}) as {
-        results?: Array<{
-          name: string;
-          url: string;
-          ok: boolean;
-          status?: number;
-          error?: string;
-        }>;
-      };
+      const data = (res.json || {}) as { results?: SourceTestResult[] };
       return Array.isArray(data.results) ? data.results : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async aiModels(): Promise<{ ok: boolean; models: string[]; error?: string } | null> {
+    if (!this.configured) return null;
+    try {
+      const res = await requestUrl({
+        url: this.endpoint("/ai/models"),
+        method: "GET",
+        headers: this.headers(),
+        throw: false,
+      });
+      if (res.status < 200 || res.status >= 300) return null;
+      const data = (res.json || {}) as { ok?: boolean; models?: string[]; error?: string };
+      return {
+        ok: !!data.ok,
+        models: Array.isArray(data.models) ? data.models : [],
+        error: data.error,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async aiTest(): Promise<{ ok: boolean; message: string; model?: string } | null> {
+    if (!this.configured) return null;
+    try {
+      const res = await requestUrl({
+        url: this.endpoint("/ai/test"),
+        method: "POST",
+        headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: "{}",
+        throw: false,
+      });
+      if (res.status < 200 || res.status >= 300) return null;
+      const data = (res.json || {}) as { ok?: boolean; message?: string; model?: string };
+      return {
+        ok: !!data.ok,
+        message: data.message || (data.ok ? "连接成功" : "连接失败"),
+        model: data.model,
+      };
     } catch {
       return null;
     }

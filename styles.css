@@ -2660,3 +2660,40 @@ h2 .it-timeline-sort b {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+.it-source-test-modal {
+  width: min(640px, 92vw);
+}
+
+.it-source-test-summary {
+  margin: 10px 0 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.it-source-test-group {
+  margin: 14px 0 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.it-source-test-list {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.it-source-test-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.it-source-kind {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
