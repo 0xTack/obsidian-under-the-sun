@@ -5396,12 +5396,6 @@ class TrackerSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("it-settings-pane");
     const sections = containerEl.createDiv({ cls: "it-settings" });
-    const sec1 = this.settingSection(sections, "朝闻天下 · 规则", "内容过滤规则");
-    sec1.createEl("p", {
-      cls: "setting-item-description",
-      text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
-    });
-
     const backendOk = this.plugin.backendHealth.ok;
     const secRss = this.settingSection(
       sections,
