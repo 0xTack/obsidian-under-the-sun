@@ -1,35 +1,8 @@
 # Under the Sun（朝闻天下）
 
-An Obsidian plugin for RSS, daily digests, AI discussion, and an optional local backend for hotlists, tracking and judgments.
-
 把每天的信息装订成一本可追溯的合订本。Obsidian 插件：信息溯源、每日日报、跟踪时间线与 AI 解读。跟踪话题会持续收进后续报道做成合订本。AI 不是通用问答，而是按证据链拆解事实、信源、矛盾与反方，还能直接把国外新闻翻译给你，一览知内外。
 
 作者：阿尔旦 · GitHub：`0xTack`
-
-## English
-
-Under the Sun is an Obsidian plugin for RSS, hotlists, daily digests, tracking, and evidence-based AI analysis.
-
-- Two modes: lightweight RSS + AI + digest, or full mode with an optional local enhancement service.
-- Build a daily Markdown digest with source, time, and original links.
-- Track a topic; later coverage is added to a timeline you can revisit.
-- AI separates facts, inferences, and judgments, checks source quality, identifies the core conflict and incentives, and states what would falsify its conclusion.
-- Foreign-language items can be translated to Chinese.
-- RSS search/filter, read state, Markdown copy, and local-first storage.
-
-### Install
-
-Search **Under the Sun** in Obsidian's community plugins, or use BRAT with `0xTack/obsidian-under-the-sun`.
-
-### Optional local enhancement service
-
-The optional macOS service adds hotlists, full-text enrichment, clustering, tracking timelines, judgments, and scheduled 07:00 / 19:00 runs. It listens on `127.0.0.1` with a token; the plugin never spawns processes.
-
-### Privacy
-
-No telemetry. RSS and AI data stay local. AI requests go only to the provider you configure.
-
----
 
 ## 两种模式
 
@@ -200,13 +173,30 @@ npm run lint
 
 反馈里不要粘贴 API Key、Cookie 或私人路径。
 
-## 支持 / Sponsor
+## English
 
-如果 Under the Sun 对你有帮助，可以请作者喝杯咖啡：
+Under the Sun is an Obsidian plugin for RSS, hotlists, daily digests, tracking, and evidence-based AI analysis.
 
-- 爱发电：<https://afdian.com/a/tack123/plan>
+- Two modes: lightweight RSS + AI + digest, or full mode with an optional local enhancement service.
+- Build a daily Markdown digest with source, time, and original links.
+- Track a topic; later coverage is added to a timeline you can revisit.
+- AI separates facts, inferences, and judgments, checks source quality, identifies the core conflict and incentives, and states what would falsify its conclusion.
+- Foreign-language items can be translated to Chinese.
+- RSS search/filter, read state, Markdown copy, and local-first storage.
 
-支持完全自愿，不影响插件的任何功能。
+### Install
+
+Search **Under the Sun** in Obsidian's community plugins, or use BRAT with `0xTack/obsidian-under-the-sun`.
+
+### Optional local enhancement service
+
+The optional macOS service adds hotlists, full-text enrichment, clustering, tracking timelines, judgments, and scheduled 07:00 / 19:00 runs. It listens on `127.0.0.1` with a token; the plugin never spawns processes.
+
+### Privacy
+
+No telemetry. RSS and AI data stay local. AI requests go only to the provider you configure.
+
+---
 
 ## License
 
