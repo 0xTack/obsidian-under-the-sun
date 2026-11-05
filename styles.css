@@ -2807,3 +2807,35 @@ h2 .it-timeline-sort b {
 .it-source-group.is-wide {
   grid-column: 1 / -1;
 }
+
+/* ---------- 日报：来源弱化、跟踪行统一、去掉编辑铅笔 ---------- */
+
+/* 来源只做弱提示，不抢标题和正文 */
+.it-reading-mode .callout[data-callout^="headline"] > .callout-content > p:first-child em,
+.it-reading-mode .callout[data-callout^="feature"] > .callout-content > p:first-child em,
+.it-reading-mode .callout[data-callout^="brief"] > .callout-content > p:first-child em,
+.it-reading-mode .callout[data-callout="chain"] .callout-content em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
+/* 跟踪进展用和新闻一致的元信息行，不再用小圆点列表 */
+.it-reading-mode .callout[data-callout="chain"] .callout-content {
+  font-size: 0.9em;
+  line-height: 1.75;
+}
+
+.it-reading-mode .callout[data-callout="chain"] .callout-content strong {
+  font-size: 1.05em;
+}
+
+/* 阅读模式里不再显示 callout 左上角图标（包括铅笔） */
+.it-reading-mode .callout > .callout-title > .callout-icon {
+  display: none !important;
+}
+
+/* 日报/跟踪笔记不再显示右上角悬浮编辑按钮 */
+.it-edit-host:has(.it-reading-mode) .it-edit-top {
+  display: none !important;
+}
