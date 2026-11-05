@@ -596,7 +596,7 @@ export default class InfoTrackerPlugin extends Plugin {
       }
       if (compareVersion(found.version, current) > 0) {
         new Notice(`发现新版本 ${found.version}（当前 ${current}），正在打开发布页`, 8000);
-        if (found.url) openExternalUrl(found.url);
+        if (found.url) window.open(found.url);
       } else {
         new Notice(`已是最新版本 ${current}`);
       }
@@ -628,7 +628,7 @@ export default class InfoTrackerPlugin extends Plugin {
   }
 
   openBackendInstallGuide() {
-    openExternalUrl("https://0xtack.github.io/TokenPeek/under-the-sun/#install");
+    window.open("https://0xtack.github.io/TokenPeek/under-the-sun/#install", "_blank");
   }
 
   openInstallGuide() {
@@ -2614,7 +2614,7 @@ export class TrackerHomeView extends ItemView {
       });
       const title = row.createDiv({ cls: "it-news-title", text: item.title });
       title.onclick = () => {
-        if (item.link) openExternalUrl(item.link);
+        if (item.link) window.open(item.link);
         if (!item.read) void plugin.toggleRead(item);
       };
       if (matches(item)) {
@@ -2772,7 +2772,7 @@ export class TrackerHomeView extends ItemView {
     for (const item of items.slice(0, 8)) {
       const row = card.createEl("div", { cls: "it-judgment" });
       const title = row.createEl("div", { cls: "it-judgment-claim", text: item.claim });
-      title.onclick = () => openExternalUrl(item.url);
+      title.onclick = () => window.open(item.url);
 
       const meta = row.createEl("div", { cls: "it-judgment-meta" });
       const counts = item.evidence_counts;
@@ -2797,7 +2797,7 @@ export class TrackerHomeView extends ItemView {
       }
 
       const open = actions.createEl("button", { text: "原文", cls: "it-mini" });
-      open.onclick = () => openExternalUrl(item.url);
+      open.onclick = () => window.open(item.url);
     }
 
     if (this.plugin.isMobile()) {
@@ -2893,10 +2893,6 @@ export class TrackerHomeView extends ItemView {
         const a = first.createEl("a", { text: item.first_title, cls: "it-history-link" });
         a.href = item.first_url;
         a.target = "_blank";
-        a.onclick = (event) => {
-          event.preventDefault();
-          openExternalUrl(item.first_url);
-        };
       } else {
         first.setText("还没有历史记录，会随着抓取慢慢积累");
       }
@@ -2985,10 +2981,6 @@ export class TrackerHomeView extends ItemView {
       const link = row.createEl("a", { text: item.headline, cls: "it-alert-title" });
       link.href = item.url;
       link.target = "_blank";
-      link.onclick = (event) => {
-        event.preventDefault();
-        openExternalUrl(item.url);
-      };
       const meta = row.createEl("div", { cls: "it-alert-meta" });
       meta.setText(`${item.source} · ${item.time.slice(5, 16)} · `);
       const noteLink = meta.createEl("a", { text: "打开链条", cls: "it-alert-note" });
@@ -3105,7 +3097,7 @@ export class TrackerHomeView extends ItemView {
         cls: "it-mini",
       });
       button.onclick = () => {
-        openExternalUrl(entry.url);
+        window.open(entry.url, "_blank");
         new Notice(
           `已打开${entry.label}登录页。登录后按 F12 → Network → 刷新，复制任意请求的 Cookie。${entry.label} Cookie ${entry.validity}。`,
           12000
@@ -3215,7 +3207,7 @@ export class TrackerHomeView extends ItemView {
         text: "去 DeepSeek 获取 API Key",
         cls: "mod-cta",
       });
-      open.onclick = () => openExternalUrl("https://platform.deepseek.com/api_keys");
+      open.onclick = () => window.open("https://platform.deepseek.com/api_keys", "_blank");
     }
 
     const form = card.createEl("div", { cls: "it-form" });
@@ -3581,7 +3573,7 @@ class JudgmentPickerModal extends Modal {
     for (const item of this.items.slice(0, 30)) {
       const row = contentEl.createEl("div", { cls: "it-news" });
       const title = row.createEl("div", { cls: "it-news-title", text: item.title });
-      title.onclick = () => openExternalUrl(item.url);
+      title.onclick = () => window.open(item.url);
       row.createEl("div", {
         cls: "it-news-meta",
         text: `${item.source} · ${item.topic}`,
