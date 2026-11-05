@@ -1,9 +1,9 @@
 {
   "id": "under-the-sun",
   "name": "Under the Sun",
-  "version": "1.0.2",
-  "minAppVersion": "1.7.2",
-  "description": "Read RSS feeds, generate a daily digest, and discuss any item with AI.",
+  "version": "2.0.0",
+  "minAppVersion": "1.8.7",
+  "description": "Read RSS feeds, with an optional local backend for hotlists, tracking and judgments.",
   "author": "0xTack",
   "isDesktopOnly": false,
   "authorUrl": "https://github.com/0xTack",

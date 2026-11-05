@@ -2196,3 +2196,15 @@ h2 .it-timeline-sort b {
 .it-textarea {
   width: 100%;
 }
+
+.it-news.is-read {
+  opacity: 0.58;
+}
+
+.it-news.is-read .it-news-title {
+  text-decoration: line-through;
+}
+
+.it-backend-card {
+  border: 1px solid var(--background-modifier-border);
+}
