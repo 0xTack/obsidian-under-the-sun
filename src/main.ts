@@ -4580,9 +4580,9 @@ class ConfirmModal extends Modal {
     contentEl.createEl("h2", { text: this.title });
     contentEl.createEl("p", { cls: "it-hint", text: this.message });
     const actions = contentEl.createDiv({ cls: "it-actions is-split" });
-    const cancel = actions.createEl("button", { text: "取消" });
+    const cancel = actions.createEl("button", { text: "取消", cls: "mod-cta" });
     cancel.onclick = () => this.close();
-    const run = actions.createEl("button", { text: this.confirmText, cls: "mod-cta" });
+    const run = actions.createEl("button", { text: this.confirmText });
     run.onclick = () => {
       this.close();
       this.onConfirm();
