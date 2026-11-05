@@ -3027,6 +3027,13 @@ export class TrackerHomeView extends ItemView {
         : "还没有启用来源",
     });
 
+    if (intl.length) {
+      card.createEl("div", {
+        cls: "it-hint it-sources-hint",
+        text: "国外来源：不开启 AI 时保留外文原文，不会自动翻译成中文。",
+      });
+    }
+
     const grid = card.createEl("div", { cls: "it-sources" });
     const groups: Record<string, SourceInfo[]> = { cn: [], intl: [] };
     for (const source of status.sources) {
@@ -3937,7 +3944,7 @@ class SourceTestModal extends Modal {
     });
     contentEl.createEl("p", {
       cls: "it-hint",
-      text: "国外来源建议打开 AI：抓取后会翻译成中文摘要。",
+      text: "国外来源建议打开 AI：开启后翻译成中文摘要；不开启 AI 时直接显示外文原文。",
     });
 
     const okCount = (rows: SourceTestResult[]) => rows.filter((row) => row.ok).length;
@@ -4466,7 +4473,7 @@ class TrackerSettingTab extends PluginSettingTab {
       );
     containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: "国外来源建议打开 AI：抓取后会翻译成中文摘要。没有代理时，被阻断的源会被跳过。",
+      text: "国外来源需要打开 AI 才会翻译成中文；不开启 AI 时直接显示外文原文。没有代理时，被阻断的源会被跳过。",
     });
 
     const status = await this.plugin.readStatus();

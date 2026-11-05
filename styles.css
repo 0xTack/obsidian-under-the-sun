@@ -2697,3 +2697,7 @@ h2 .it-timeline-sort b {
   font-size: 10px;
   line-height: 1.6;
 }
+
+.it-sources-hint {
+  margin: 8px 0 2px;
+}
