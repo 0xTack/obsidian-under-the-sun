@@ -5162,8 +5162,9 @@ class TrackerSettingTab extends PluginSettingTab {
   private displayMobile() {
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("朝闻天下 · 手机端").setHeading();
-    containerEl.createEl("p", {
+    containerEl.addClass("it-settings");
+    const secM1 = this.settingSection(containerEl, "手机端说明", "只读同步、AI 在本机", true);
+    secM1.createEl("p", {
       cls: "setting-item-description",
       text:
         "抓取和正文补全在电脑端完成；手机端读取电脑写进 vault 的 mobile.json。" +
@@ -5173,8 +5174,8 @@ class TrackerSettingTab extends PluginSettingTab {
     const settings = this.plugin.settings;
     let key = "";
 
-    new Setting(containerEl).setName("RSS").setHeading();
-    new Setting(containerEl)
+    const secM2 = this.settingSection(containerEl, "RSS", "来源、保留条数", false);
+    new Setting(secM2)
       .setName("RSS 地址")
       .setDesc("一行一个，支持 RSS / Atom。也可以在主页「选择 RSS 来源」里勾选常用来源。")
       .addTextArea((text) => {
@@ -5188,7 +5189,7 @@ class TrackerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(secM2)
       .setName("最多保留条数")
       .setDesc("本地保留的 RSS 新闻数量")
       .addText((text) =>
@@ -5200,8 +5201,8 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).setName("AI").setHeading();
-    new Setting(containerEl)
+    const secM3 = this.settingSection(containerEl, "AI", "服务商、Key、模型", false);
+    new Setting(secM3)
       .setName("启用 AI")
       .setDesc("AI 解读、AI 交流需要打开；抓取仍然只在电脑端")
       .addToggle((toggle) =>
@@ -5210,7 +5211,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("API 地址")
       .setDesc("OpenAI 兼容接口，例如 https://api.deepseek.com/v1")
       .addText((text) =>
@@ -5222,7 +5223,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("模型")
       .setDesc("点主页 AI 卡片的「获取模型」读取账号可用模型；也可以填任何 OpenAI 兼容模型名")
       .addText((text) =>
@@ -5234,7 +5235,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("推理强度")
       .setDesc("支持推理的模型可填 low / medium / high；留空则不发送")
       .addDropdown((dropdown) => {
@@ -5248,7 +5249,7 @@ class TrackerSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("API Key")
       .setDesc("只保存在这台设备的插件 data.json，不会写进 vault")
       .addText((text) => {
@@ -5260,7 +5261,7 @@ class TrackerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("手机快照路径")
       .setDesc("电脑端 Python 写出的文件；默认朝闻天下/.同步数据/mobile.json")
       .addText((text) =>
@@ -5272,7 +5273,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(secM3)
       .setName("保存")
       .setDesc("保存后回首页点「刷新快照」")
       .addButton((button) =>
@@ -5305,12 +5306,38 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("p", {
+    secM3.createEl("p", {
       cls: "setting-item-description",
       text:
         "如果首页读不到数据，先在电脑端运行一次 `python main.py status`，或等 07:00 / 19:00 抓取后 iCloud 同步过来。",
     });
   }
+
+  private settingSection(
+    host: HTMLElement,
+    title: string,
+    summary: string,
+    open = false
+  ): HTMLElement {
+    const group = host.createDiv({ cls: "it-set-group" });
+    const head = group.createDiv({ cls: "it-set-head" });
+    head.createEl("div", { cls: "it-set-title", text: title });
+    head.createEl("div", { cls: "it-set-summary", text: summary });
+    head.createEl("div", { cls: "it-set-chevron", text: "›" });
+    const body = group.createDiv({ cls: "it-set-body" });
+    const sync = () => {
+      body.toggleClass("is-hidden", !group.hasClass("is-open"));
+      head.setAttr("aria-expanded", group.hasClass("is-open") ? "true" : "false");
+    };
+    group.toggleClass("is-open", open);
+    head.onclick = () => {
+      group.toggleClass("is-open", !group.hasClass("is-open"));
+      sync();
+    };
+    sync();
+    return body;
+  }
+
 
   async display() {
     if (this.plugin.isMobile()) {
@@ -5319,14 +5346,15 @@ class TrackerSettingTab extends PluginSettingTab {
     }
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("朝闻天下 · 规则").setHeading();
-    containerEl.createEl("p", {
+    containerEl.addClass("it-settings");
+    const sec1 = this.settingSection(containerEl, "朝闻天下 · 规则", "内容规则、RSS 轻量模式", true);
+    sec1.createEl("p", {
       cls: "setting-item-description",
       text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
     });
 
     const backendOk = this.plugin.backendHealth.ok;
-    const simple = containerEl.createEl("details", { cls: "it-settings-collapse" });
+    const simple = sec1.createEl("details", { cls: "it-settings-collapse" });
     simple.createEl("summary", { text: "RSS / 轻量模式" });
     simple.open = !backendOk;
     simple.createEl("p", {
@@ -5390,8 +5418,8 @@ class TrackerSettingTab extends PluginSettingTab {
         })
     );
 
-    new Setting(containerEl).setName("本地增强服务").setHeading();
-    new Setting(containerEl)
+    const sec2 = this.settingSection(containerEl, "本地增强服务", "地址、token、连接状态", false);
+    new Setting(sec2)
       .setName("安装 / 更新本地增强服务")
       .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要它。安装器只装增强服务，不覆盖插件。")
       .addButton((button) =>
@@ -5408,8 +5436,8 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl).setName("来源连通性").setHeading();
-    new Setting(containerEl)
+    const sec3 = this.settingSection(containerEl, "来源连通性", "测试来源、可访问性", false);
+    new Setting(sec3)
       .setName("测试所有来源")
       .setDesc("逐个检查热榜和 RSS 源。结果取决于本机网络、代理和本地增强服务的运行环境。")
       .addButton((button) =>
@@ -5417,7 +5445,7 @@ class TrackerSettingTab extends PluginSettingTab {
           void this.plugin.testSources();
         })
       );
-    new Setting(containerEl)
+    new Setting(sec3)
       .setName("只启用可访问的来源")
       .setDesc("根据上次测试关闭不可达的热榜和 RSS 源；手动关闭的源会保留。")
       .addButton((button) =>
@@ -5425,7 +5453,7 @@ class TrackerSettingTab extends PluginSettingTab {
           void this.plugin.applyReachableSources();
         })
       );
-    const foreignHint = containerEl.createEl("p", {
+    const foreignHint = sec3.createEl("p", {
       cls: "setting-item-description",
     });
     foreignHint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
@@ -5465,12 +5493,12 @@ class TrackerSettingTab extends PluginSettingTab {
       await this.plugin.view?.refresh();
     };
 
-    new Setting(containerEl).setName("抓取时间").setHeading();
-    containerEl.createEl("p", {
+    const sec4 = this.settingSection(containerEl, "抓取时间", "每日定时、出报时间", false);
+    sec4.createEl("p", {
       cls: "setting-item-description",
       text: "定时抓取由本地增强服务负责（默认 07:00 / 19:00）；关掉 Obsidian 也会运行。",
     });
-    new Setting(containerEl)
+    new Setting(sec4)
       .setName("启用定时抓取")
       .setDesc("本地增强服务启动时会按下面的时间自动运行；关闭后只能手动抓取。")
       .addToggle((toggle) =>
@@ -5479,7 +5507,7 @@ class TrackerSettingTab extends PluginSettingTab {
           void saveSchedule();
         })
       );
-    new Setting(containerEl)
+    new Setting(sec4)
       .setName("早上出报时间")
       .setDesc("例如 07:00；到点后抓取并生成当天日报。")
       .addText((text) => {
@@ -5489,7 +5517,7 @@ class TrackerSettingTab extends PluginSettingTab {
           void saveSchedule();
         });
       });
-    new Setting(containerEl)
+    new Setting(sec4)
       .setName("晚上时间")
       .setDesc("例如 19:00；默认只收集，打开下面的开关后也出报。")
       .addText((text) => {
@@ -5499,7 +5527,7 @@ class TrackerSettingTab extends PluginSettingTab {
           void saveSchedule();
         });
       });
-    new Setting(containerEl)
+    new Setting(sec4)
       .setName("晚上也生成日报")
       .setDesc("打开后，晚上到点会强制重写当天日报；关闭则只收集。")
       .addToggle((toggle) =>
@@ -5524,7 +5552,7 @@ class TrackerSettingTab extends PluginSettingTab {
           toggle.setValue(false);
         })
       );
-    new Setting(containerEl)
+    new Setting(sec4)
       .setName("跟踪报告折叠")
       .setDesc("单条跟踪默认展开，多条默认折叠；也可以固定全部展开或全部折叠。")
       .addDropdown((dropdown) => {
@@ -5570,9 +5598,9 @@ class TrackerSettingTab extends PluginSettingTab {
     let lookback = Number(dedupe.lookback_days ?? 7);
     let similarity = Number(dedupe.min_similarity ?? 0.62);
 
-    new Setting(containerEl).setName("过滤").setHeading();
+    const sec5 = this.settingSection(containerEl, "过滤", "屏蔽关键词与来源", false);
 
-    new Setting(containerEl)
+    new Setting(sec5)
       .setName("启用过滤")
       .setDesc("标题太短，或命中下面的屏蔽词，就不进报纸")
       .addToggle((toggle) =>
@@ -5581,7 +5609,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(sec5)
       .setName("标题最少字数")
       .setDesc("少于这个字数（不算空白）的标题会被过滤")
       .addText((text) =>
@@ -5593,7 +5621,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("p", {
+    sec5.createEl("p", {
       cls: "setting-item-description",
       text:
         "一条规则就是「命中就不进报纸」。标题包含最常用；来源、链接和正则是高级用法，可以在每行左边切换。",
@@ -5632,7 +5660,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const placeholderFor = (type: string) =>
       ruleTypes.find((row) => row.value === type)?.placeholder || ruleTypes[0].placeholder;
 
-    const ruleBox = containerEl.createEl("details", {
+    const ruleBox = sec5.createEl("details", {
       cls: "it-filter-rules it-settings-collapse",
     });
     const ruleSummary = ruleBox.createEl("summary");
@@ -5719,9 +5747,9 @@ class TrackerSettingTab extends PluginSettingTab {
       new Notice("屏蔽规则已保存，下一份报纸生效");
     };
 
-    new Setting(containerEl).setName("跨天去重").setHeading();
+    const sec6 = this.settingSection(containerEl, "跨天去重", "重复新闻合并", false);
 
-    new Setting(containerEl)
+    new Setting(sec6)
       .setName("避免昨天上过的新闻今天重复")
       .setDesc("已勾「跟踪」的条目不受影响，后续进展会继续更新")
       .addToggle((toggle) =>
@@ -5730,7 +5758,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(sec6)
       .setName("回看天数")
       .setDesc("1 = 只看昨天，2 = 看前两天，依此类推")
       .addText((text) =>
@@ -5742,7 +5770,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(sec6)
       .setName("相似度阈值")
       .setDesc("0.45–0.75 之间；越高越不容易误判，但重复新闻可能漏过")
       .addText((text) =>
@@ -5754,7 +5782,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).addButton((button) =>
+    new Setting(sec6).addButton((button) =>
       button
         .setButtonText("保存全部规则")
         .setCta()
@@ -5774,9 +5802,9 @@ class TrackerSettingTab extends PluginSettingTab {
         })
     );
 
-    new Setting(containerEl).setName("高级选项").setHeading();
+    const sec7 = this.settingSection(containerEl, "高级选项", "项目路径、Python 路径", false);
 
-    new Setting(containerEl)
+    new Setting(sec7)
       .setName("显示判断簿")
       .setDesc("在主页显示判断簿，用于记录可检验判断；默认关闭。")
       .addToggle((toggle) =>
@@ -5789,8 +5817,8 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).setName("更新").setHeading();
-    new Setting(containerEl)
+    const sec8 = this.settingSection(containerEl, "更新", "检查新版本", false);
+    new Setting(sec8)
       .setName("插件更新")
       .setDesc("通过 Obsidian 市场自动更新。本地增强服务的更新在「本地增强服务」里检测。")
       .addButton((button) =>
@@ -5799,7 +5827,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    const helpBox = containerEl.createEl("details", {
+    const helpBox = sec8.createEl("details", {
       cls: "it-settings-collapse it-settings-plain",
     });
     helpBox.createEl("summary", { text: "主页按钮说明" });
@@ -5827,8 +5855,8 @@ class TrackerSettingTab extends PluginSettingTab {
       li.createEl("strong", { text: title + "：" });
       li.createEl("span", { text: desc });
     }
-    new Setting(containerEl).setName("日报").setHeading();
-    new Setting(containerEl)
+    const sec9 = this.settingSection(containerEl, "日报", "文件夹、复制、打开", false);
+    new Setting(sec9)
       .setName("复制今日日报")
       .setDesc("把今天的日报复制成 Markdown，方便粘贴到聊天、邮件或其他笔记。")
       .addButton((button) =>
@@ -5837,8 +5865,8 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl).setName("反馈").setHeading();
-    new Setting(containerEl)
+    const sec10 = this.settingSection(containerEl, "反馈", "GitHub Issues、作者", false);
+    new Setting(sec10)
       .setName("GitHub Issues")
       .setDesc("作者：阿尔旦。报告问题、提功能建议，或查看作者主页。")
       .addButton((button) =>
