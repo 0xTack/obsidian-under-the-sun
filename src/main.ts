@@ -5311,6 +5311,8 @@ class TrackerSettingTab extends PluginSettingTab {
       text:
         "如果首页读不到数据，先在电脑端运行一次 `python main.py status`，或等 07:00 / 19:00 抓取后 iCloud 同步过来。",
     });
+
+    this.renderSupport(containerEl);
   }
 
   private settingSection(
@@ -5886,5 +5888,25 @@ class TrackerSettingTab extends PluginSettingTab {
             openExternalUrl("https://github.com/0xTack");
           })
       );
+
+    this.renderSupport(containerEl);
+  }
+
+  private renderSupport(host: HTMLElement) {
+    const wrap = host.createDiv({ cls: "it-support" });
+    wrap.createEl("h3", { cls: "it-support-title", text: "支持 / Sponsor" });
+    const card = wrap.createDiv({ cls: "it-support-card" });
+    const text = card.createDiv({ cls: "it-support-text" });
+    text.createEl("div", { cls: "it-support-heading", text: "请作者喝杯咖啡" });
+    text.createEl("div", {
+      cls: "it-support-desc",
+      text:
+        "如果 Under the Sun 对你有帮助，可以支持后续开发。" +
+        "完全自愿，不影响插件的任何功能。",
+    });
+    const button = card.createEl("button", { cls: "it-support-btn" });
+    setIcon(button, "heart");
+    button.createEl("span", { text: "支持作者" });
+    button.onclick = () => openExternalUrl("https://afdian.com/a/tack123/plan");
   }
 }
