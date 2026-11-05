@@ -2989,3 +2989,22 @@ h2 .it-timeline-sort b {
 .it-actions.is-centered {
   justify-content: center;
 }
+
+/* 确认弹窗：内容居中，宽度贴合文字 */
+.it-confirm-modal {
+  width: fit-content !important;
+  min-width: 320px;
+  max-width: min(560px, 92vw) !important;
+}
+
+.it-confirm-modal .modal-content {
+  text-align: center;
+}
+
+.it-confirm-modal .modal-content h2,
+.it-confirm-modal .modal-content p {
+  text-align: center;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}

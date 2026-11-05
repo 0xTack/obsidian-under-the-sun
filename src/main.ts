@@ -4575,6 +4575,7 @@ class ConfirmModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
+    this.modalEl.addClass("it-confirm-modal");
     contentEl.empty();
     contentEl.createEl("h2", { text: this.title });
     contentEl.createEl("p", { cls: "it-hint", text: this.message });
