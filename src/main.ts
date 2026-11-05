@@ -3127,12 +3127,15 @@ export class TrackerHomeView extends ItemView {
     const list = root.createDiv({ cls: "it-card" });
     const head = list.createDiv({ cls: "it-section-head" });
     const countEl = head.createEl("span");
+    if (mobile) {
+      head.createEl("span", { cls: "it-badge", text: "有增强服务可忽略" });
+    }
 
     if (mobile) {
       list.createDiv({
         cls: "it-hint",
         text:
-          "如果电脑上已经安装了本地增强服务，这里只是手机端的 RSS 补充，可以忽略；" +
+          "如果电脑上已经安装了本地增强服务，下面的 RSS 可以忽略；" +
           "电脑生成的日报会同步到上方的「今日新闻」。",
       });
     }
