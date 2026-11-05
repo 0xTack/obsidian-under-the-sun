@@ -2887,7 +2887,7 @@ export class TrackerHomeView extends ItemView {
       sub.setText(
         `${status.today} · 今日${status.digest_exists ? "已生成" : "未生成"} · 库存 ${
           status.stats.items
-        } 条 · 跟踪 ${status.stats.watches} 条${mobile ? " · 手机端只读" : ""}`
+        } 条 · 跟踪 ${status.stats.watches} 条${mobile ? " · 可 AI 解读" : ""}`
       );
     }
 
@@ -2917,6 +2917,7 @@ export class TrackerHomeView extends ItemView {
     if (this.busy) this.startBusyTimer(busy);
 
     if (!this.plugin.backendHealth.ok) {
+      if (mobile) this.renderMobileItems(root, status);
       this.renderSimpleMode(root);
       return;
     }
@@ -2944,49 +2945,146 @@ export class TrackerHomeView extends ItemView {
     this.updateLog(this.plugin.lastLog);
   }
 
+  private renderMobileItems(root: HTMLElement, status: StatusPayload | null) {
+    const items = status?.mobile_items || [];
+    if (!items.length) {
+      const empty = root.createEl("div", { cls: "it-card it-mobile-empty" });
+      empty.createEl("div", { cls: "it-section-head", text: "今日新闻" });
+      empty.createEl("div", {
+        cls: "it-hint",
+        text:
+          "还没有收到电脑端快照。" +
+          "如果电脑上已经装了本地增强服务，请忽略这条提醒：" +
+          "等 iCloud 同步完成，或先在电脑上打开一次 Under the Sun。" +
+          "下面的 RSS 仍可直接使用。",
+      });
+      return;
+    }
+    const aiReady = this.plugin.mobileAi().available();
+    const card = root.createEl("div", { cls: "it-card it-mobile-digest" });
+    const head = card.createEl("div", { cls: "it-section-head" });
+    head.createEl("span", { text: `今日新闻（${items.length}）` });
+    if (status?.generated_at) {
+      head.createEl("span", {
+        cls: "it-mobile-sync",
+        text: `同步于 ${status.generated_at.slice(5, 16).replace("T", " ")}`,
+      });
+    }
+    card.createEl("div", {
+      cls: "it-hint",
+      text: aiReady
+        ? "点「AI 解读」会用这台手机的 API Key 生成，结果写回日报笔记；「AI 交流」可以继续追问。"
+        : "还没有配置 AI。到 设置 → 第三方插件 → Under the Sun 填 API 地址、模型和 Key，就能在手机上解读。",
+    });
+
+    for (const item of items.slice(0, 40)) {
+      const row = card.createEl("div", { cls: `it-news${item.tracked ? " is-tracked" : ""}` });
+      const title = row.createEl("a", {
+        cls: "it-news-title",
+        text: item.title,
+      });
+      title.href = item.url;
+      title.target = "_blank";
+      row.createDiv({
+        cls: "it-news-meta",
+        text: `${item.source}${item.topic ? ` · ${item.topic}` : ""}${item.has_ai ? " · 已解读" : ""}`,
+      });
+      if (item.summary) {
+        row.createDiv({ cls: "it-hint", text: item.summary.slice(0, 160) });
+      }
+      const actions = row.createDiv({ cls: "it-news-actions" });
+      const ai = actions.createEl("button", { text: "AI 解读", cls: "it-mini" });
+      ai.onclick = () => void this.plugin.generateAi(item.id);
+      const chat = actions.createEl("button", { text: "AI 交流", cls: "it-mini" });
+      chat.onclick = () => {
+        new ChatModal(this.app, this.plugin, item.id, item.title).open();
+      };
+      const open = actions.createEl("button", { text: "原文", cls: "it-mini" });
+      open.onclick = () => window.open(item.url);
+    }
+  }
+
   private renderSimpleMode(root: HTMLElement) {
     const plugin = this.plugin;
+    const mobile = plugin.isMobile();
 
     const card = root.createDiv({ cls: "it-card it-backend-card" });
     const cardHead = card.createDiv({ cls: "it-section-head" });
-    cardHead.createEl("span", { text: "本地增强服务" });
-    cardHead.createEl("span", { cls: "it-badge on", text: "推荐" });
-    card.createDiv({
-      cls: "it-hint",
-      text: "安装后解锁完整能力；不安装也能继续使用下面的 RSS + AI + 日报。",
+    cardHead.createEl("span", { text: mobile ? "电脑端增强服务" : "本地增强服务" });
+    cardHead.createEl("span", {
+      cls: "it-badge",
+      text: mobile ? "可选" : "推荐",
     });
-    const features = card.createEl("ul", { cls: "it-enhancer-features" });
-    for (const text of [
-      "热榜：百度、微博、知乎、小红书、B站、抖音等",
-      "正文补全、聚类、打分排序",
-      "跟踪时间线与新进展提醒",
-      "判断簿与复核",
-      "每天 07:00 / 19:00 自动收集、出报",
-    ]) {
-      features.createEl("li", { text });
+    if (mobile) {
+      card.createDiv({
+        cls: "it-hint",
+        text:
+          "本地增强服务装在电脑上，手机端不能安装。" +
+          "如果电脑上已经装好，请忽略这一块提示，等 iCloud 同步即可。",
+      });
+      const reread = card.createDiv({ cls: "it-actions" }).createEl("button", {
+        text: "重新读取快照",
+        cls: "it-mini",
+      });
+      reread.onclick = async () => {
+        await this.refresh();
+        new Notice(
+          this.status?.mobile_items?.length
+            ? "已读取到电脑端快照"
+            : "还没有读到快照；确认电脑端已运行过，并等 iCloud 同步"
+        );
+      };
+      card.createDiv({
+        cls: "it-hint",
+        text: "下面的 RSS 直接在手机上抓取和使用，不需要电脑。",
+      });
+    } else {
+      card.createDiv({
+        cls: "it-hint",
+        text: "安装后解锁完整能力；不安装也能继续使用下面的 RSS + AI + 日报。",
+      });
+      const features = card.createEl("ul", { cls: "it-enhancer-features" });
+      for (const text of [
+        "热榜：百度、微博、知乎、小红书、B站、抖音等",
+        "正文补全、聚类、打分排序",
+        "跟踪时间线与新进展提醒",
+        "判断簿与复核",
+        "每天 07:00 / 19:00 自动收集、出报",
+      ]) {
+        features.createEl("li", { text });
+      }
+      const actions = card.createDiv({ cls: "it-actions" });
+      const install = actions.createEl("button", {
+        text: "安装本地增强服务",
+        cls: "mod-cta",
+      });
+      install.onclick = () => plugin.openInstallGuide();
+      const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
+      check.onclick = async () => {
+        const health = await plugin.checkBackend();
+        new Notice(health.ok ? "本地增强服务已连接" : "仍然未连接，请确认安装器已完成");
+        await this.refresh();
+      };
+      card.createDiv({
+        cls: "it-hint",
+        text: "安装器只装增强服务，不覆盖插件，也不会影响现有 RSS 和 AI 设置；可随时卸载。",
+      });
     }
-    const actions = card.createDiv({ cls: "it-actions" });
-    const install = actions.createEl("button", {
-      text: "安装本地增强服务",
-      cls: "mod-cta",
-    });
-    install.onclick = () => plugin.openInstallGuide();
-    const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
-    check.onclick = async () => {
-      const health = await plugin.checkBackend();
-      new Notice(health.ok ? "本地增强服务已连接" : "仍然未连接，请确认安装器已完成");
-      await this.refresh();
-    };
-    card.createDiv({
-      cls: "it-hint",
-      text: "安装器只装增强服务，不覆盖插件，也不会影响现有 RSS 和 AI 设置；可随时卸载。",
-    });
 
     this.renderSimpleSources(root);
 
     const list = root.createDiv({ cls: "it-card" });
     const head = list.createDiv({ cls: "it-section-head" });
     const countEl = head.createEl("span");
+
+    if (mobile) {
+      list.createDiv({
+        cls: "it-hint",
+        text:
+          "如果电脑上已经安装了本地增强服务，这里只是手机端的 RSS 补充，可以忽略；" +
+          "电脑生成的日报会同步到上方的「今日新闻」。",
+      });
+    }
 
     const tools = list.createDiv({ cls: "it-actions" });
     const refresh = tools.createEl("button", { text: "刷新 RSS", cls: "it-mini mod-cta" });
@@ -3340,8 +3438,8 @@ export class TrackerHomeView extends ItemView {
       text:
         "抓取、正文补全、来源开关、Cookie 和判断卡新建/复核都只在电脑端。" +
         "跟踪和已读可以直接在日报里勾选，电脑端下次运行会同步。" +
-        "手机端读取电脑同步过来的快照和日报；AI 解读与 AI 交流需要先在 " +
-        "设置 → 第三方插件 → 朝闻天下 里启用 AI 并填 API Key。" +
+        "手机端读取电脑同步过来的快照和日报，上方的「今日新闻」可以直接 AI 解读和交流；" +
+        "首次使用需要先在 设置 → 第三方插件 → Under the Sun 里填 API 地址、模型和 Key。" +
         (status?.generated_at ? ` 快照生成于 ${status.generated_at.slice(0, 16).replace("T", " ")}。` : ""),
     });
   }

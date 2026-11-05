@@ -3088,3 +3088,18 @@ h2 .it-timeline-sort b {
 .it-busy {
   padding-right: 4px;
 }
+
+.it-mobile-sync {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.it-news.is-tracked {
+  border-left: 2px solid var(--color-red);
+  padding-left: 8px;
+}
+
+.it-mobile-digest .it-news + .it-news {
+  margin-top: 14px;
+}
