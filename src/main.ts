@@ -45,6 +45,10 @@ interface TrackerSettings {
   rssFeeds: string;
   rssDigestFolder: string;
   rssMaxItems: number;
+  scheduleMorning: string;
+  scheduleEvening: string;
+  scheduleEnabled: boolean;
+  scheduleEveningDigest: boolean;
   mobileSnapshotPath: string;
   debugMobile?: boolean;
   showJudgments?: boolean;
@@ -65,6 +69,10 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   rssFeeds: "",
   rssDigestFolder: "朝闻天下/RSS日报",
   rssMaxItems: 60,
+  scheduleMorning: "07:00",
+  scheduleEvening: "19:00",
+  scheduleEnabled: true,
+  scheduleEveningDigest: false,
   mobileSnapshotPath: "朝闻天下/.同步数据/mobile.json",
   debugMobile: false,
   showJudgments: false,
@@ -189,6 +197,7 @@ interface StatusPayload {
   generated_at: string;
   version?: string;
   api?: number;
+  schedule?: { enabled?: boolean; morning?: string; evening?: string; eveningDigest?: boolean };
   vault: string;
   digest_folder: string;
   watch_folder?: string;
@@ -291,6 +300,8 @@ export default class InfoTrackerPlugin extends Plugin {
   backend!: BackendClient;
   backendHealth: BackendHealth = { ok: false };
   rssItems: RssItem[] = [];
+  runStartedAt = 0;
+  runLabel = "";
   simpleAiText: Record<string, string> = {};
   simpleChats: Record<string, Array<{ role: string; content: string }>> = {};
   private lastChatItem = 0;
@@ -323,16 +334,18 @@ export default class InfoTrackerPlugin extends Plugin {
       this.addCommand({
         id: "run-all",
         name: "立即抓取并生成日报",
-        callback: () => this.runCli(["run"]),
+        callback: () => {
+          void this.runWithConfirm();
+        },
       });
       this.addCommand({
         id: "fetch-only",
-        name: "只抓取（不出报）",
+        name: "收集（不出报）",
         callback: () => this.runCli(["fetch"]),
       });
       this.addCommand({
         id: "setup-env",
-        name: "安装/更新完整版后端",
+        name: "安装/更新本地增强服务",
         callback: () => {
           this.openBackendInstallGuide();
         },
@@ -562,7 +575,7 @@ export default class InfoTrackerPlugin extends Plugin {
     }
     const ok = await this.backend.saveConfig(partial);
     if (!ok) {
-      new Notice("完整版后端未连接，配置没有保存");
+      new Notice("本地增强服务未连接，配置没有保存");
     }
   }
 
@@ -585,13 +598,30 @@ export default class InfoTrackerPlugin extends Plugin {
     return -1;
   }
 
+  async runWithConfirm(): Promise<number> {
+    if (this.running) {
+      new Notice("正在运行，请稍候");
+      return -1;
+    }
+    const status = await this.readStatus();
+    if (!status?.digest_exists) {
+      return this.runCli(["run", "--force"]);
+    }
+    new ConfirmModal(
+      this.app,
+      "今天已有日报。重新生成会覆盖日报正文，但会保留跟踪/已读勾选和 AI 缓存。",
+      () => void this.runCli(["run", "--force"])
+    ).open();
+    return -1;
+  }
+
   async runCli(args: string[], silent = false, queue = false): Promise<number> {
     if (this.isMobile()) {
-      new Notice("完整版后端只在电脑端可用；手机端读取电脑同步过来的快照");
+      new Notice("本地增强服务只在电脑端可用；手机端读取电脑同步过来的快照");
       return -1;
     }
     if (!this.backend.configured) {
-      new Notice("还没有安装完整版后端；先点主页的「安装完整版」");
+      new Notice("还没有安装本地增强服务；先点主页的「下载安装包」");
       return -1;
     }
     if (this.running) {
@@ -604,18 +634,26 @@ export default class InfoTrackerPlugin extends Plugin {
     }
     this.running = true;
     this.lastLog = "";
+    this.runStartedAt = Date.now();
+    this.runLabel = args[0] || "";
     this.view?.setBusy(true);
 
-    const result = await this.backend.run(args);
-    this.lastLog = result.output || "";
-    this.running = false;
-    this.view?.setBusy(false);
-    this.view?.updateLog(this.lastLog);
-    if (!silent) {
-      new Notice(result.code === 0 ? "完成" : `结束（退出码 ${result.code}），看下面的日志`);
+    let result = { code: -1, output: "" };
+    try {
+      result = await this.backend.run(args);
+    } finally {
+      this.runStartedAt = 0;
+      this.runLabel = "";
+      this.lastLog = result.output || "";
+      this.running = false;
+      this.view?.setBusy(false);
+      this.view?.updateLog(this.lastLog);
+      if (!silent) {
+        new Notice(result.code === 0 ? "完成" : `结束（退出码 ${result.code}），看下面的日志`);
+      }
+      await this.view?.refresh();
+      this.refreshStatusBar();
     }
-    await this.view?.refresh();
-    this.refreshStatusBar();
     return result.code;
   }
 
@@ -634,7 +672,7 @@ export default class InfoTrackerPlugin extends Plugin {
   }
 
   stopRun() {
-    new Notice("后端运行中暂不支持中断；可以等这次完成");
+    new Notice("本地增强服务运行中暂不支持中断；可以等这次完成");
   }
 
   async pollAlerts() {
@@ -1945,6 +1983,7 @@ export class TrackerHomeView extends ItemView {
   busy = false;
   private logEl: HTMLElement | null = null;
   private openSimpleChat = "";
+  private busyTimer = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: InfoTrackerPlugin) {
     super(leaf);
@@ -1967,6 +2006,10 @@ export class TrackerHomeView extends ItemView {
     await this.refresh();
   }
 
+  async onClose() {
+    this.stopBusyTimer();
+  }
+
   async refresh() {
     await this.plugin.checkBackend();
     this.status = await this.plugin.readStatus();
@@ -1976,13 +2019,69 @@ export class TrackerHomeView extends ItemView {
 
   setBusy(busy: boolean) {
     this.busy = busy;
-    const bar = this.contentEl.querySelector(".it-busy");
-    if (bar) bar.toggleClass("is-hidden", !busy);
+    const bar = this.contentEl.querySelector(".it-busy") as HTMLElement | null;
+    if (bar) {
+      bar.toggleClass("is-hidden", !busy);
+      if (busy) this.startBusyTimer(bar);
+      else {
+        this.stopBusyTimer();
+        delete bar.dataset.tip;
+        bar.setText("正在运行…");
+      }
+    }
     this.contentEl.querySelectorAll("button.it-action").forEach((btn) => {
       (btn as HTMLButtonElement).disabled = busy;
     });
     const stop = this.contentEl.querySelector("button.it-stop") as HTMLButtonElement | null;
     if (stop) stop.disabled = !busy;
+  }
+
+  private startBusyTimer(bar: HTMLElement) {
+    this.stopBusyTimer();
+    const started = this.plugin.runStartedAt || Date.now();
+    const label = this.plugin.runLabel;
+    const estimate =
+      label === "run"
+        ? "1–3 分钟"
+        : label === "fetch"
+          ? "30–90 秒"
+          : label === "ai-all"
+            ? "2–5 分钟"
+            : "几秒到 1 分钟";
+    const tips =
+      label === "run"
+        ? [
+            "正在抓取热榜和 RSS…",
+            "正在补全正文…",
+            "正在去重和聚类…",
+            "正在打分排序…",
+            "正在更新跟踪…",
+            "正在排版今天的报纸…",
+          ]
+        : label === "fetch"
+          ? ["正在抓取热榜和 RSS…", "正在写入本地素材库…"]
+          : label === "ai-all"
+            ? ["正在生成 AI 解读…", "正在整理判断材料…"]
+            : ["正在处理…"];
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - started) / 1000);
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+      const ss = String(elapsed % 60).padStart(2, "0");
+      const tip = tips[Math.floor(elapsed / 4) % tips.length];
+      bar.dataset.tip = tip;
+      bar.setText(
+        `正在运行… 已用 ${mm}:${ss} · 预计 ${estimate} · 悬停查看当前步骤`
+      );
+    };
+    tick();
+    this.busyTimer = window.setInterval(tick, 1000);
+  }
+
+  private stopBusyTimer() {
+    if (this.busyTimer) {
+      window.clearInterval(this.busyTimer);
+      this.busyTimer = 0;
+    }
   }
 
   updateLog(text: string) {
@@ -2005,7 +2104,7 @@ export class TrackerHomeView extends ItemView {
       sub.setText(
         mobile
           ? "还没收到电脑端快照。先在电脑端运行一次，或等每天 07:00 抓取后同步过来。"
-          : "完整版后端未连接。先安装后端，或继续使用简单模式。"
+          : "本地增强服务未连接。先安装本地增强服务，或继续使用轻量模式。"
       );
     } else {
       sub.setText(
@@ -2015,8 +2114,25 @@ export class TrackerHomeView extends ItemView {
       );
     }
 
+    const schedule = status?.schedule;
+    if (schedule) {
+      const line = root.createDiv({ cls: "it-schedule-line" });
+      line.createEl("span", {
+        text: `抓取时间：每天 ${schedule.morning || "07:00"} 出报 · ${
+          schedule.evening || "19:00"
+        } ${schedule.eveningDigest ? "出报" : "收集"}${schedule.enabled === false ? "（已暂停）" : ""}`,
+      });
+      const edit = line.createEl("button", { text: "修改", cls: "it-mini" });
+      edit.onclick = () => {
+        const app = this.app as any;
+        app.setting?.open?.();
+        app.setting?.openTabById?.(this.plugin.manifest.id);
+      };
+    }
+
     const busy = root.createEl("div", { cls: "it-busy is-hidden", text: "正在运行…" });
     busy.toggleClass("is-hidden", !this.busy);
+    if (this.busy) this.startBusyTimer(busy);
 
     if (!this.plugin.backendHealth.ok) {
       this.renderSimpleMode(root);
@@ -2050,25 +2166,38 @@ export class TrackerHomeView extends ItemView {
     const plugin = this.plugin;
 
     const card = root.createDiv({ cls: "it-card it-backend-card" });
-    card.createDiv({ cls: "it-section-head", text: "完整版后端" });
+    const cardHead = card.createDiv({ cls: "it-section-head" });
+    cardHead.createEl("span", { text: "本地增强服务" });
+    cardHead.createEl("span", { cls: "it-badge on", text: "推荐" });
     card.createDiv({
       cls: "it-hint",
-      text: plugin.backendHealth.ok
-        ? `已连接${plugin.backendHealth.version ? ` · v${plugin.backendHealth.version}` : ""}`
-        : `未连接${plugin.backendHealth.error ? ` · ${plugin.backendHealth.error}` : ""}。当前是简单模式。`,
+      text: "安装后解锁完整能力；不安装也能继续使用下面的 RSS + AI + 日报。",
     });
+    const features = card.createEl("ul", { cls: "it-enhancer-features" });
+    for (const text of [
+      "热榜：百度、微博、知乎、小红书、B站、抖音等",
+      "正文补全、聚类、打分排序",
+      "跟踪时间线与新进展提醒",
+      "判断簿与复核",
+      "每天 07:00 / 19:00 自动收集、出报",
+    ]) {
+      features.createEl("li", { text });
+    }
     const actions = card.createDiv({ cls: "it-actions" });
-    const install = actions.createEl("button", { text: "下载安装包", cls: "mod-cta" });
+    const install = actions.createEl("button", {
+      text: "安装本地增强服务",
+      cls: "mod-cta",
+    });
     install.onclick = () => plugin.openInstallGuide();
     const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
     check.onclick = async () => {
       const health = await plugin.checkBackend();
-      new Notice(health.ok ? "后端已连接" : "仍然未连接，请确认安装器已完成");
+      new Notice(health.ok ? "本地增强服务已连接" : "仍然未连接，请确认安装器已完成");
       await this.refresh();
     };
     card.createDiv({
       cls: "it-hint",
-      text: "不装后端时，下面是 RSS + AI + 日报的简单模式；安装后端后，热榜、跟踪、判断簿和定时任务会解锁。",
+      text: "安装器只装增强服务，不覆盖插件，也不会影响现有 RSS 和 AI 设置；可随时卸载。",
     });
 
     const list = root.createDiv({ cls: "it-card" });
@@ -2186,7 +2315,7 @@ export class TrackerHomeView extends ItemView {
     const button = bar.createEl("button", {
       cls: `it-backend-open${health.ok ? " is-connected" : ""}`,
     });
-    button.createEl("span", { text: "完整版后端" });
+    button.createEl("span", { text: "本地增强服务" });
     button.createEl("span", {
       cls: "it-backend-state",
       text: health.ok
@@ -2208,9 +2337,9 @@ export class TrackerHomeView extends ItemView {
     }
 
     const run = box.createEl("button", { text: "抓取并出报", cls: "it-action mod-cta" });
-    run.onclick = () => this.plugin.runCli(["run"]);
+    run.onclick = () => void this.plugin.runWithConfirm();
 
-    const fetchOnly = box.createEl("button", { text: "只抓取", cls: "it-action" });
+    const fetchOnly = box.createEl("button", { text: "收集", cls: "it-action" });
     fetchOnly.onclick = () => this.plugin.runCli(["fetch"]);
 
     const open = box.createEl("button", { text: "打开今日日报", cls: "it-action" });
@@ -2533,7 +2662,7 @@ export class TrackerHomeView extends ItemView {
         if (login) {
           row.createEl("span", {
             cls: `it-source-badge ${logged ? "is-on" : ""}`,
-            text: logged ? "已登录" : "需登录",
+            text: logged ? "已登录" : "未登录",
           });
         }
         checkbox.onchange = async () => {
@@ -2587,7 +2716,7 @@ export class TrackerHomeView extends ItemView {
       };
       loginRow.createEl("span", {
         cls: `it-source-badge ${logged ? "is-on" : ""}`,
-        text: logged ? "已登录" : "需登录",
+        text: logged ? "已登录" : "未登录",
       });
     }
 
@@ -3316,6 +3445,46 @@ class ChatModal extends Modal {
   }
 }
 
+class ConfirmModal extends Modal {
+  private message: string;
+  private onConfirm: () => void;
+  private title: string;
+  private confirmText: string;
+
+  constructor(
+    app: App,
+    message: string,
+    onConfirm: () => void,
+    title = "重新生成今天的日报？",
+    confirmText = "继续生成"
+  ) {
+    super(app);
+    this.message = message;
+    this.onConfirm = onConfirm;
+    this.title = title;
+    this.confirmText = confirmText;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: this.title });
+    contentEl.createEl("p", { cls: "it-hint", text: this.message });
+    const actions = contentEl.createDiv({ cls: "it-actions" });
+    const cancel = actions.createEl("button", { text: "取消" });
+    cancel.onclick = () => this.close();
+    const run = actions.createEl("button", { text: this.confirmText, cls: "mod-cta" });
+    run.onclick = () => {
+      this.close();
+      this.onConfirm();
+    };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
 class InstallGuideModal extends Modal {
   plugin: InfoTrackerPlugin;
 
@@ -3328,14 +3497,14 @@ class InstallGuideModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("it-backend-modal");
-    contentEl.createEl("h2", { text: "安装完整版后端" });
+    contentEl.createEl("h2", { text: "安装本地增强服务" });
     contentEl.createEl("p", {
       cls: "it-hint",
-      text: "后端是独立安装的本地服务，插件不会被覆盖。装好后热榜、正文补全、聚类、跟踪和判断簿会解锁。",
+      text: "本地增强服务是独立安装的本地服务，插件不会被覆盖。装好后热榜、正文补全、聚类、跟踪和判断簿会解锁。",
     });
     const steps = contentEl.createEl("ol", { cls: "it-install-steps" });
     for (const text of [
-      "下载 macOS 后端安装包。",
+      "下载 macOS 增强服务安装包。",
       "解压后双击 install-backend.command。",
       "安装器会写入 token、安装 launchd 后台服务。",
       "重启 Obsidian，插件会自动连接。",
@@ -3351,7 +3520,7 @@ class InstallGuideModal extends Modal {
     const check = actions.createEl("button", { text: "已安装，检测连接", cls: "it-mini" });
     check.onclick = async () => {
       const health = await this.plugin.checkBackend();
-      new Notice(health.ok ? "后端已连接" : "还没有连上，请确认安装器已完成");
+      new Notice(health.ok ? "本地增强服务已连接" : "还没有连上，请确认安装器已完成");
       if (health.ok) {
         this.close();
         await this.plugin.view?.refresh();
@@ -3380,10 +3549,10 @@ class BackendSettingsModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("it-backend-modal");
-    contentEl.createEl("h2", { text: "完整版后端" });
+    contentEl.createEl("h2", { text: "本地增强服务" });
     contentEl.createEl("p", {
       cls: "it-hint",
-      text: "后端是独立安装的本地服务，插件只通过 127.0.0.1 调用它。不装后端时，RSS、AI、日报仍可使用。",
+      text: "本地增强服务是独立安装的本地服务，插件只通过 127.0.0.1 调用它。不安装时，RSS、AI、日报仍可使用。",
     });
 
     const form = contentEl.createEl("div", { cls: "it-form" });
@@ -3392,7 +3561,7 @@ class BackendSettingsModal extends Modal {
     this.urlEl.value = this.plugin.settings.backendUrl;
 
     this.tokenEl = form.createEl("input", { type: "password", cls: "it-input" });
-    this.tokenEl.placeholder = "后端 token（安装器会写入）";
+    this.tokenEl.placeholder = "服务 token（安装器会写入）";
     this.tokenEl.value = this.plugin.settings.backendToken;
 
     const showRow = form.createEl("label", { cls: "it-source" });
@@ -3411,7 +3580,7 @@ class BackendSettingsModal extends Modal {
       await this.plugin.view?.refresh();
     };
     const install = actions.createEl("button", {
-      text: "安装 / 更新后端",
+      text: "安装 / 更新本地增强服务",
       cls: "it-mini",
     });
     install.onclick = () => this.plugin.openBackendInstallGuide();
@@ -3426,7 +3595,7 @@ class BackendSettingsModal extends Modal {
       this.plugin.refreshStatusBar();
       this.updateStatus();
       await this.plugin.view?.refresh();
-      new Notice("后端设置已保存");
+      new Notice("本地增强服务设置已保存");
     };
   }
 
@@ -3628,15 +3797,25 @@ class TrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("朝闻天下 · 规则").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: "这里只放内容规则。完整版后端、状态栏开关在插件主页最下面的「完整版后端 / 高级设置」里。",
+      text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
     });
 
-    new Setting(containerEl).setName("RSS / 简单模式").setHeading();
-    new Setting(containerEl)
+    const backendOk = this.plugin.backendHealth.ok;
+    const simple = containerEl.createEl("details", { cls: "it-settings-collapse" });
+    simple.createEl("summary", { text: "RSS / 轻量模式" });
+    simple.open = !backendOk;
+    simple.createEl("p", {
+      cls: "setting-item-description",
+      text: backendOk
+        ? "本地增强服务已连接，当前使用完整模式。轻量模式作为后备，不会同时运行；服务断开后会自动回退。"
+        : "当前使用轻量模式。安装并连接本地增强服务后，会自动切换到完整模式，两者不会同时运行。",
+    });
+
+    new Setting(simple)
       .setName("RSS 地址")
-      .setDesc("一行一个，支持 RSS / Atom。没有后端时，这里就是插件的全部来源。")
+      .setDesc("一行一个，支持 RSS / Atom。没有本地增强服务时，这里就是插件的全部来源。")
       .addTextArea((text) => {
-        text.inputEl.rows = 8;
+        text.inputEl.rows = 4;
         text.inputEl.addClass("it-textarea");
         text
           .setPlaceholder("https://example.com/feed.xml")
@@ -3646,9 +3825,9 @@ class TrackerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(simple)
       .setName("RSS 日报目录")
-      .setDesc("简单模式生成 RSS 日报的位置")
+      .setDesc("轻量模式生成 RSS 日报的位置")
       .addText((text) =>
         text
           .setPlaceholder("朝闻天下/RSS日报")
@@ -3659,7 +3838,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(simple)
       .setName("最多保留条数")
       .setDesc("本地保留的 RSS 新闻数量")
       .addText((text) =>
@@ -3674,10 +3853,21 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).setName("完整版后端").setHeading();
+    new Setting(simple).addButton((button) =>
+      button
+        .setButtonText("保存 RSS 设置")
+        .setCta()
+        .onClick(async () => {
+          await this.plugin.saveSettings();
+          new Notice("RSS 设置已保存");
+          await this.plugin.view?.refresh();
+        })
+    );
+
+    new Setting(containerEl).setName("本地增强服务").setHeading();
     new Setting(containerEl)
-      .setName("安装 / 更新后端")
-      .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要本地后端。安装器只装后端，不覆盖插件。")
+      .setName("安装 / 更新本地增强服务")
+      .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要本地增强服务。安装器只装增强服务，不覆盖插件。")
       .addButton((button) =>
         button
           .setButtonText("下载安装包")
@@ -3687,12 +3877,95 @@ class TrackerSettingTab extends PluginSettingTab {
       .addButton((button) =>
         button.setButtonText("检测连接").onClick(async () => {
           const health = await this.plugin.checkBackend();
-          new Notice(health.ok ? "后端已连接" : "后端未连接，请先完成安装");
+          new Notice(health.ok ? "本地增强服务已连接" : "本地增强服务未连接，请先完成安装");
           await this.plugin.view?.refresh();
         })
       );
 
     const status = await this.plugin.readStatus();
+
+    const schedule = status?.schedule || {
+      enabled: this.plugin.settings.scheduleEnabled,
+      morning: this.plugin.settings.scheduleMorning,
+      evening: this.plugin.settings.scheduleEvening,
+      eveningDigest: this.plugin.settings.scheduleEveningDigest,
+    };
+    let scheduleEnabled = schedule.enabled !== false;
+    let scheduleMorning = schedule.morning || "07:00";
+    let scheduleEvening = schedule.evening || "19:00";
+    let scheduleEveningDigest = schedule.eveningDigest === true;
+
+    new Setting(containerEl).setName("抓取时间").setHeading();
+    new Setting(containerEl)
+      .setName("启用定时抓取")
+      .setDesc("本地增强服务启动时会按下面的时间自动运行；关闭后只能手动抓取。")
+      .addToggle((toggle) =>
+        toggle.setValue(scheduleEnabled).onChange((value) => {
+          scheduleEnabled = value;
+        })
+      );
+    new Setting(containerEl)
+      .setName("早上出报时间")
+      .setDesc("例如 07:00；到点后抓取并生成当天日报。")
+      .addText((text) => {
+        text.inputEl.type = "time";
+        text.setValue(scheduleMorning).onChange((value) => {
+          scheduleMorning = value || "07:00";
+        });
+      });
+    new Setting(containerEl)
+      .setName("晚上时间")
+      .setDesc("例如 19:00；默认只收集，打开下面的开关后也出报。")
+      .addText((text) => {
+        text.inputEl.type = "time";
+        text.setValue(scheduleEvening).onChange((value) => {
+          scheduleEvening = value || "19:00";
+        });
+      });
+    new Setting(containerEl)
+      .setName("晚上也生成日报")
+      .setDesc("打开后，晚上到点会强制重写当天日报；关闭则只收集。")
+      .addToggle((toggle) =>
+        toggle.setValue(scheduleEveningDigest).onChange((value) => {
+          if (!value) {
+            scheduleEveningDigest = false;
+            return;
+          }
+          if (scheduleEveningDigest) return;
+          new ConfirmModal(
+            this.app,
+            "打开后，晚上到点会强制重写当天日报。当天已有的日报正文会被覆盖；跟踪/已读勾选和 AI 缓存会保留。确定打开吗？",
+            () => {
+              scheduleEveningDigest = true;
+              toggle.setValue(true);
+            },
+            "打开晚上出报？",
+            "确认打开"
+          ).open();
+          toggle.setValue(false);
+        })
+      );
+    new Setting(containerEl).addButton((button) =>
+      button
+        .setButtonText("保存抓取时间")
+        .setCta()
+        .onClick(async () => {
+          this.plugin.settings.scheduleEnabled = scheduleEnabled;
+          this.plugin.settings.scheduleMorning = scheduleMorning;
+          this.plugin.settings.scheduleEvening = scheduleEvening;
+          this.plugin.settings.scheduleEveningDigest = scheduleEveningDigest;
+          await this.plugin.saveSettings();
+          const ok = await this.plugin.backend.saveSchedule({
+            enabled: scheduleEnabled,
+            morning: scheduleMorning,
+            evening: scheduleEvening,
+            eveningDigest: scheduleEveningDigest,
+          });
+          new Notice(ok ? "抓取时间已保存" : "已保存到本机；本地增强服务未连接");
+          await this.plugin.view?.refresh();
+        })
+    );
+
     const filters = status?.filters || {};
     const dedupe = status?.dedupe || {};
 

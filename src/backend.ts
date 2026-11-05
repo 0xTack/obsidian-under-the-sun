@@ -13,10 +13,10 @@ export interface BackendResult {
 }
 
 /**
- * 本地完整版后端的唯一入口。
+ * 本地本地增强服务的唯一入口。
  *
  * 插件不 spawn、不读项目目录，只请求 127.0.0.1。
- * 没有后端时所有调用都会快速失败，界面退回简单模式。
+ * 没有后端时所有调用都会快速失败，界面退回轻量模式。
  */
 export class BackendClient {
   constructor(private baseUrl: string, private token: string) {}
@@ -79,7 +79,7 @@ export class BackendClient {
 
   async run(args: string[]): Promise<BackendResult> {
     if (!this.configured) {
-      return { code: -1, output: "完整版后端未配置" };
+      return { code: -1, output: "本地增强服务未配置" };
     }
     try {
       const res = await requestUrl({
@@ -105,6 +105,43 @@ export class BackendClient {
         code: -1,
         output: err instanceof Error ? err.message : String(err),
       };
+    }
+  }
+
+  async schedule(): Promise<{ enabled?: boolean; morning?: string; evening?: string; eveningDigest?: boolean } | null> {
+    if (!this.configured) return null;
+    try {
+      const res = await requestUrl({
+        url: this.endpoint("/schedule"),
+        method: "GET",
+        headers: this.headers(),
+        throw: false,
+      });
+      if (res.status < 200 || res.status >= 300) return null;
+      return (res.json || null) as { enabled?: boolean; morning?: string; evening?: string; eveningDigest?: boolean } | null;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveSchedule(patch: {
+    enabled?: boolean;
+    morning?: string;
+    evening?: string;
+    eveningDigest?: boolean;
+  }): Promise<boolean> {
+    if (!this.configured) return false;
+    try {
+      const res = await requestUrl({
+        url: this.endpoint("/schedule"),
+        method: "POST",
+        headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+        throw: false,
+      });
+      return res.status >= 200 && res.status < 300;
+    } catch {
+      return false;
     }
   }
 
