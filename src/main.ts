@@ -6114,9 +6114,7 @@ class TrackerSettingTab extends PluginSettingTab {
     text.createEl("div", { cls: "it-support-heading", text: "请作者喝杯咖啡" });
     text.createEl("div", {
       cls: "it-support-desc",
-      text:
-        "如果 Under the Sun 对你有帮助，可以支持后续开发。" +
-        "完全自愿，不影响插件的任何功能。",
+      text: "如果对你有帮助，可以支持后续开发。完全自愿。",
     });
     const button = card.createEl("button", { cls: "it-support-btn" });
     setIcon(button, "heart");
