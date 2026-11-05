@@ -5340,24 +5340,27 @@ class TrackerSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("it-settings-pane");
     const sections = containerEl.createDiv({ cls: "it-settings" });
-    const sec1 = this.settingSection(sections, "朝闻天下 · 规则", "内容规则、RSS 轻量模式");
+    const sec1 = this.settingSection(sections, "朝闻天下 · 规则", "内容过滤规则");
     sec1.createEl("p", {
       cls: "setting-item-description",
       text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
     });
 
     const backendOk = this.plugin.backendHealth.ok;
-    const simple = sec1.createEl("details", { cls: "it-settings-collapse" });
-    simple.createEl("summary", { text: "RSS / 轻量模式" });
-    simple.open = !backendOk;
-    simple.createEl("p", {
+    const secRss = this.settingSection(
+      sections,
+      "RSS / 轻量模式",
+      "来源、条数、关注关键词",
+      !backendOk
+    );
+    secRss.createEl("p", {
       cls: "setting-item-description",
       text: backendOk
         ? "本地增强服务已连接，当前使用完整模式。轻量模式作为后备，不会同时运行；服务断开后会自动回退。"
         : "当前使用轻量模式。安装并连接本地增强服务后，会自动切换到完整模式，两者不会同时运行。",
     });
 
-    new Setting(simple)
+    new Setting(secRss)
       .setName("RSS 地址")
       .setDesc("一行一个，支持 RSS / Atom。也可以在主页「选择 RSS 来源」里勾选常用来源；这里适合批量粘贴。")
       .addTextArea((text) => {
@@ -5371,7 +5374,7 @@ class TrackerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(simple)
+    new Setting(secRss)
       .setName("最多保留条数")
       .setDesc("本地保留的 RSS 新闻数量")
       .addText((text) =>
@@ -5386,7 +5389,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(simple)
+    new Setting(secRss)
       .setName("关注关键词")
       .setDesc("一行一个。轻量模式下命中的新闻会标「关注」，可以点「关注」筛选。")
       .addTextArea((text) => {
@@ -5400,7 +5403,7 @@ class TrackerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(simple).addButton((button) =>
+    new Setting(secRss).addButton((button) =>
       button
         .setButtonText("保存 RSS 设置")
         .setCta()
