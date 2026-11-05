@@ -144,7 +144,7 @@ const LOGIN_ENTRIES: LoginEntry[] = [
     label: "微博",
     url: "https://weibo.com/login.php",
     cookieUrl: "https://weibo.com",
-    required: ["SUB", "SUBP"],
+    required: ["SUB", "SUBP", "SSOLoginState"],
     requiresLogin: true,
     validity: "通常 7–30 天",
   },
@@ -842,6 +842,36 @@ export default class InfoTrackerPlugin extends Plugin {
     }
 
     const partition = "persist:under-the-sun-login";
+    const session = remote.session.fromPartition(partition);
+    const readCookies = async () => {
+      const cookies = await session.cookies.get({ url: entry.cookieUrl });
+      const names = new Set(cookies.map((cookie: any) => cookie.name));
+      return {
+        ok: entry.required.every((name) => names.has(name)),
+        value: cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; "),
+      };
+    };
+    const saveLoginCookies = async (cookies: any[]): Promise<boolean> => {
+      const value = cookies
+        .map((cookie: any) => `${cookie.name}=${cookie.value}`)
+        .join("; ");
+      await this.saveOverrides({
+        cookies: { [entry.key]: value },
+        cookies_meta: { [entry.key]: new Date().toISOString() },
+      });
+      await this.runCli(["status"], true);
+      await this.view?.refresh();
+      return true;
+    };
+
+    const cached = await readCookies();
+    if (cached.ok) {
+      const cookies = await session.cookies.get({ url: entry.cookieUrl });
+      await saveLoginCookies(cookies);
+      new Notice(`已同步${entry.label}登录态`, 6000);
+      return;
+    }
+
     let win: any;
     try {
       win = new remote.BrowserWindow({
@@ -871,7 +901,6 @@ export default class InfoTrackerPlugin extends Plugin {
     }
 
     this.loginWindows.set(entry.key, win);
-    const session = remote.session.fromPartition(partition);
     let finished = false;
     let checking = false;
     let timer = 0;
@@ -879,15 +908,6 @@ export default class InfoTrackerPlugin extends Plugin {
       if (timer) window.clearInterval(timer);
       timer = 0;
       this.loginWindows.delete(entry.key);
-    };
-
-    const readCookies = async () => {
-      const cookies = await session.cookies.get({ url: entry.cookieUrl });
-      const names = new Set(cookies.map((cookie: any) => cookie.name));
-      return {
-        ok: entry.required.every((name) => names.has(name)),
-        value: cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; "),
-      };
     };
 
     const finish = async () => {
@@ -900,12 +920,8 @@ export default class InfoTrackerPlugin extends Plugin {
           new Notice(`没有检测到${entry.label}登录 Cookie，可以重试或手动粘贴`, 10000);
           return;
         }
-        await this.saveOverrides({
-          cookies: { [entry.key]: result.value },
-          cookies_meta: { [entry.key]: new Date().toISOString() },
-        });
-        await this.runCli(["status"], true);
-        await this.view?.refresh();
+        const cookies = await session.cookies.get({ url: entry.cookieUrl });
+        await saveLoginCookies(cookies);
         new Notice(`已自动获取并保存${entry.label} Cookie`, 8000);
         if (!win.isDestroyed()) win.close();
       } catch (err) {
@@ -916,25 +932,26 @@ export default class InfoTrackerPlugin extends Plugin {
       }
     };
 
-    timer = window.setInterval(() => {
-      if (finished) return;
+    const checkCookies = async () => {
+      if (finished || checking) return;
       if (win.isDestroyed()) {
         stop();
         return;
       }
-      if (checking) return;
       checking = true;
-      void (async () => {
-        try {
-          const result = await readCookies();
-          if (result.ok) await finish();
-        } catch {
-          // 登录过程中读取失败时继续等下一次
-        } finally {
-          checking = false;
-        }
-      })();
-    }, 1500);
+      try {
+        const result = await readCookies();
+        if (result.ok) await finish();
+      } catch {
+        // 登录过程中读取失败时继续等下一次
+      } finally {
+        checking = false;
+      }
+    };
+    timer = window.setInterval(() => void checkCookies(), 1500);
+    win.webContents.on("did-navigate", () => void checkCookies());
+    win.webContents.on("did-frame-navigate", () => void checkCookies());
+    win.webContents.on("did-stop-loading", () => void checkCookies());
 
     win.on("closed", () => {
       stop();
@@ -3491,7 +3508,7 @@ export class TrackerHomeView extends ItemView {
         cls: "it-login-card-title",
         text: this.plugin.isMobile()
           ? `打开${entry.label}登录页`
-          : `自动登录${entry.label}`,
+          : `一键登录${entry.label}`,
       });
       const stateText = entry.requiresLogin
         ? logged
@@ -3518,7 +3535,7 @@ export class TrackerHomeView extends ItemView {
     if (!this.plugin.isMobile()) {
       card.createEl("div", {
         cls: "it-hint",
-        text: "点「自动登录」后，在弹出的窗口完成登录；检测到 Cookie 会自动保存并关闭窗口。",
+        text: "首次登录需在弹出的窗口扫码或输入账号；检测到登录态会自动保存并关闭窗口。之后点一下即可直接同步。",
       });
     }
 
