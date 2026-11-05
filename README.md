@@ -2,7 +2,7 @@
 
 An Obsidian plugin for RSS, daily digests, AI discussion, and an optional local backend for hotlists, tracking and judgments.
 
-一个 Obsidian 插件：不装本地增强服务时是轻量 RSS + AI + 日报；安装后解锁热榜、正文补全、聚类、跟踪时间线和判断簿。
+一个 Obsidian 插件：每天一份日报，重要的事继续追踪。Under the Sun 把热榜、RSS 和后续报道汇总成日报，自动去重、聚类、排序并按日期归档；跟踪话题会持续收进后续报道做成合订本。AI 不是通用问答，而是按证据链拆解事实、信源、矛盾与反方，能解读也能追问，还能直接把国外新闻翻译给你，一览知内外。
 
 ---
 
