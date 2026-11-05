@@ -118,6 +118,14 @@ npm run build
 
 构建产物是 `main.js`，和 `manifest.json`、`styles.css` 一起发布。
 
+## 支持 / Sponsor
+
+如果 Under the Sun 对你有帮助，可以请作者喝杯咖啡：
+
+- 爱发电：<https://afdian.com/a/tack123/plan>
+
+支持完全自愿，不影响插件的任何功能。
+
 ## License
 
 MIT

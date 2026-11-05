@@ -1,11 +1,11 @@
 {
   "id": "under-the-sun",
   "name": "Under the Sun",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minAppVersion": "1.7.2",
   "description": "Read RSS feeds, generate a daily digest, and discuss any item with AI.",
   "author": "0xTack",
   "isDesktopOnly": false,
   "authorUrl": "https://github.com/0xTack",
-  "fundingUrl": "https://afdian.com/a/tack123"
+  "fundingUrl": "https://afdian.com/a/tack123/plan"
 }
