@@ -6,6 +6,29 @@ An Obsidian plugin for RSS, daily digests, AI discussion, and an optional local 
 
 作者：阿尔旦 · GitHub：`0xTack`
 
+## English
+
+Under the Sun is an Obsidian plugin for RSS, hotlists, daily digests, tracking, and evidence-based AI analysis.
+
+- Two modes: lightweight RSS + AI + digest, or full mode with an optional local enhancement service.
+- Build a daily Markdown digest with source, time, and original links.
+- Track a topic; later coverage is added to a timeline you can revisit.
+- AI separates facts, inferences, and judgments, checks source quality, identifies the core conflict and incentives, and states what would falsify its conclusion.
+- Foreign-language items can be translated to Chinese.
+- RSS search/filter, read state, Markdown copy, and local-first storage.
+
+### Install
+
+Search **Under the Sun** in Obsidian's community plugins, or use BRAT with `0xTack/obsidian-under-the-sun`.
+
+### Optional local enhancement service
+
+The optional macOS service adds hotlists, full-text enrichment, clustering, tracking timelines, judgments, and scheduled 07:00 / 19:00 runs. It listens on `127.0.0.1` with a token; the plugin never spawns processes.
+
+### Privacy
+
+No telemetry. RSS and AI data stay local. AI requests go only to the provider you configure.
+
 ---
 
 ## 两种模式
