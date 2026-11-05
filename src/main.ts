@@ -4012,8 +4012,8 @@ export class TrackerHomeView extends ItemView {
     card.createEl("p", {
       cls: "it-hint",
       text:
-        "API Key 只保存在这台设备，不写进笔记，也不随 vault 同步；" +
-        "换设备（包括手机和电脑之间）需要各自重新填写。",
+        "Key 只留在这台设备，换设备需要重新填写；" +
+        "不会写进笔记，也不随笔记库同步。手机和电脑各自保存各自的。",
     });
 
     const currentProvider =
