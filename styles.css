@@ -2976,3 +2976,21 @@ h2 .it-timeline-sort b {
     margin: 0.4em 0 !important;
   }
 }
+
+/* 运行状态条固定在顶部，空闲时也占位，避免跳闪和内容位移 */
+.it-busy.is-idle {
+  background: transparent;
+  border-left-color: var(--background-modifier-border);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  opacity: 0.9;
+}
+
+.it-busy.is-idle::before {
+  display: none;
+}
+
+.it-busy {
+  min-height: 32px;
+  box-sizing: border-box;
+}

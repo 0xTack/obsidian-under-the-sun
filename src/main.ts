@@ -1139,11 +1139,14 @@ export default class InfoTrackerPlugin extends Plugin {
       await this.waitUntilIdle();
       return this.runCli(args, silent, true);
     }
+    const showBusy = ["run", "fetch", "process", "watch", "digest"].includes(
+      args[0] || ""
+    );
     this.running = true;
     this.lastLog = "";
     this.runStartedAt = Date.now();
     this.runLabel = args[0] || "";
-    this.view?.setBusy(true);
+    if (showBusy) this.view?.setBusy(true);
 
     let result = { code: -1, output: "" };
     try {
@@ -1153,7 +1156,7 @@ export default class InfoTrackerPlugin extends Plugin {
       this.runLabel = "";
       this.lastLog = result.output || "";
       this.running = false;
-      this.view?.setBusy(false);
+      if (showBusy) this.view?.setBusy(false);
       this.view?.updateLog(this.lastLog);
       if (!silent) {
         new Notice(result.code === 0 ? "完成" : `结束（退出码 ${result.code}），看下面的日志`);
@@ -2624,12 +2627,12 @@ export class TrackerHomeView extends ItemView {
     this.busy = busy;
     const bar = this.contentEl.querySelector(".it-busy") as HTMLElement | null;
     if (bar) {
-      bar.toggleClass("is-hidden", !busy);
+      bar.toggleClass("is-idle", !busy);
       if (busy) this.startBusyTimer(bar);
       else {
         this.stopBusyTimer();
         delete bar.dataset.tip;
-        bar.setText("正在运行…");
+        bar.setText("就绪");
       }
     }
     this.contentEl.querySelectorAll("button.it-action").forEach((btn) => {
@@ -2734,8 +2737,11 @@ export class TrackerHomeView extends ItemView {
       };
     }
 
-    const busy = root.createEl("div", { cls: "it-busy is-hidden", text: "正在运行…" });
-    busy.toggleClass("is-hidden", !this.busy);
+    const busy = root.createEl("div", {
+      cls: "it-busy",
+      text: this.busy ? "正在运行…" : "就绪",
+    });
+    busy.toggleClass("is-idle", !this.busy);
     if (this.busy) this.startBusyTimer(busy);
 
     if (!this.plugin.backendHealth.ok) {
