@@ -5162,8 +5162,9 @@ class TrackerSettingTab extends PluginSettingTab {
   private displayMobile() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.addClass("it-settings");
-    const secM1 = this.settingSection(containerEl, "手机端说明", "只读同步、AI 在本机");
+    containerEl.addClass("it-settings-pane");
+    const sections = containerEl.createDiv({ cls: "it-settings" });
+    const secM1 = this.settingSection(sections, "手机端说明", "只读同步、AI 在本机");
     secM1.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -5174,7 +5175,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const settings = this.plugin.settings;
     let key = "";
 
-    const secM2 = this.settingSection(containerEl, "RSS", "来源、保留条数", false);
+    const secM2 = this.settingSection(sections, "RSS", "来源、保留条数", false);
     new Setting(secM2)
       .setName("RSS 地址")
       .setDesc("一行一个，支持 RSS / Atom。也可以在主页「选择 RSS 来源」里勾选常用来源。")
@@ -5201,7 +5202,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    const secM3 = this.settingSection(containerEl, "AI", "服务商、Key、模型", false);
+    const secM3 = this.settingSection(sections, "AI", "服务商、Key、模型", false);
     new Setting(secM3)
       .setName("启用 AI")
       .setDesc("AI 解读、AI 交流需要打开；抓取仍然只在电脑端")
@@ -5337,8 +5338,9 @@ class TrackerSettingTab extends PluginSettingTab {
     }
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.addClass("it-settings");
-    const sec1 = this.settingSection(containerEl, "朝闻天下 · 规则", "内容规则、RSS 轻量模式");
+    containerEl.addClass("it-settings-pane");
+    const sections = containerEl.createDiv({ cls: "it-settings" });
+    const sec1 = this.settingSection(sections, "朝闻天下 · 规则", "内容规则、RSS 轻量模式");
     sec1.createEl("p", {
       cls: "setting-item-description",
       text: "这里只放内容规则。本地增强服务、状态栏开关在插件主页最下面的「本地增强服务 / 高级设置」里。",
@@ -5409,7 +5411,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
     );
 
-    const sec2 = this.settingSection(containerEl, "本地增强服务", "地址、token、连接状态", false);
+    const sec2 = this.settingSection(sections, "本地增强服务", "地址、token、连接状态", false);
     new Setting(sec2)
       .setName("安装 / 更新本地增强服务")
       .setDesc("热榜、正文补全、聚类、跟踪和判断簿需要它。安装器只装增强服务，不覆盖插件。")
@@ -5427,7 +5429,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    const sec3 = this.settingSection(containerEl, "来源连通性", "测试来源、可访问性", false);
+    const sec3 = this.settingSection(sections, "来源连通性", "测试来源、可访问性", false);
     new Setting(sec3)
       .setName("测试所有来源")
       .setDesc("逐个检查热榜和 RSS 源。结果取决于本机网络、代理和本地增强服务的运行环境。")
@@ -5484,7 +5486,7 @@ class TrackerSettingTab extends PluginSettingTab {
       await this.plugin.view?.refresh();
     };
 
-    const sec4 = this.settingSection(containerEl, "抓取时间", "每日定时、出报时间", false);
+    const sec4 = this.settingSection(sections, "抓取时间", "每日定时、出报时间", false);
     sec4.createEl("p", {
       cls: "setting-item-description",
       text: "定时抓取由本地增强服务负责（默认 07:00 / 19:00）；关掉 Obsidian 也会运行。",
@@ -5589,7 +5591,7 @@ class TrackerSettingTab extends PluginSettingTab {
     let lookback = Number(dedupe.lookback_days ?? 7);
     let similarity = Number(dedupe.min_similarity ?? 0.62);
 
-    const sec5 = this.settingSection(containerEl, "过滤", "屏蔽关键词与来源", false);
+    const sec5 = this.settingSection(sections, "过滤", "屏蔽关键词与来源", false);
 
     new Setting(sec5)
       .setName("启用过滤")
@@ -5738,7 +5740,7 @@ class TrackerSettingTab extends PluginSettingTab {
       new Notice("屏蔽规则已保存，下一份报纸生效");
     };
 
-    const sec6 = this.settingSection(containerEl, "跨天去重", "重复新闻合并", false);
+    const sec6 = this.settingSection(sections, "跨天去重", "重复新闻合并", false);
 
     new Setting(sec6)
       .setName("避免昨天上过的新闻今天重复")
@@ -5793,7 +5795,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
     );
 
-    const sec7 = this.settingSection(containerEl, "高级选项", "项目路径、Python 路径", false);
+    const sec7 = this.settingSection(sections, "高级选项", "项目路径、Python 路径", false);
 
     new Setting(sec7)
       .setName("显示判断簿")
@@ -5808,7 +5810,7 @@ class TrackerSettingTab extends PluginSettingTab {
           })
       );
 
-    const sec8 = this.settingSection(containerEl, "更新", "检查新版本", false);
+    const sec8 = this.settingSection(sections, "更新", "检查新版本", false);
     new Setting(sec8)
       .setName("插件更新")
       .setDesc("通过 Obsidian 市场自动更新。本地增强服务的更新在「本地增强服务」里检测。")
@@ -5846,7 +5848,7 @@ class TrackerSettingTab extends PluginSettingTab {
       li.createEl("strong", { text: title + "：" });
       li.createEl("span", { text: desc });
     }
-    const sec9 = this.settingSection(containerEl, "日报", "文件夹、复制、打开", false);
+    const sec9 = this.settingSection(sections, "日报", "文件夹、复制、打开", false);
     new Setting(sec9)
       .setName("复制今日日报")
       .setDesc("把今天的日报复制成 Markdown，方便粘贴到聊天、邮件或其他笔记。")
@@ -5856,7 +5858,7 @@ class TrackerSettingTab extends PluginSettingTab {
         })
       );
 
-    const sec10 = this.settingSection(containerEl, "反馈", "GitHub Issues、作者", false);
+    const sec10 = this.settingSection(sections, "反馈", "GitHub Issues、作者", false);
     new Setting(sec10)
       .setName("GitHub Issues")
       .setDesc("作者：阿尔旦。报告问题、提功能建议，或查看作者主页。")
