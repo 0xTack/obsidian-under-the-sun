@@ -2520,22 +2520,6 @@ h2 .it-timeline-sort b {
   position: relative;
 }
 
-.it-busy[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  left: 12px;
-  top: calc(100% + 6px);
-  z-index: 30;
-  padding: 6px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  font-size: var(--font-ui-smaller);
-  white-space: nowrap;
-  box-shadow: var(--shadow-s);
-}
-
 .it-enhancer-features {
   margin: 8px 0 14px;
   padding-left: 18px;
@@ -2993,4 +2977,11 @@ h2 .it-timeline-sort b {
 .it-busy {
   min-height: 32px;
   box-sizing: border-box;
+}
+
+
+.it-busy {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

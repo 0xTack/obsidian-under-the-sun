@@ -2631,7 +2631,6 @@ export class TrackerHomeView extends ItemView {
       if (busy) this.startBusyTimer(bar);
       else {
         this.stopBusyTimer();
-        delete bar.dataset.tip;
         bar.setText("就绪");
       }
     }
@@ -2674,10 +2673,7 @@ export class TrackerHomeView extends ItemView {
       const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
       const ss = String(elapsed % 60).padStart(2, "0");
       const tip = tips[Math.floor(elapsed / 4) % tips.length];
-      bar.dataset.tip = tip;
-      bar.setText(
-        `正在运行… 已用 ${mm}:${ss} · 预计 ${estimate} · 悬停查看当前步骤`
-      );
+      bar.setText(`${tip} · 已用 ${mm}:${ss} · 预计 ${estimate}`);
     };
     tick();
     this.busyTimer = window.setInterval(tick, 1000);
