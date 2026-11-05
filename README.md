@@ -101,9 +101,9 @@ styles.css
 1. 先安装并启用 `under-the-sun` 插件
 2. 下载本地增强服务：
 
-   <https://0xtack.github.io/TokenPeek/under-the-sun/downloads/UnderTheSun-Backend-0.4.1-macOS.zip>
+   <https://0xtack.github.io/TokenPeek/under-the-sun/downloads/UnderTheSun-Backend-2.0.1-macOS.zip>
 
-3. 解压后双击 `install-backend.command`
+3. 解压后双击 `双击安装.command`
 4. 安装器会：
    - 检查 Python 3.9+
    - 创建 venv 并安装依赖

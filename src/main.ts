@@ -67,7 +67,7 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   aiEnabled: false,
   apiBaseUrl: "https://api.deepseek.com/v1",
   apiKey: "",
-  model: "deepseek-flash",
+  model: "deepseek-chat",
   reasoningEffort: "medium",
   rssFeeds: "",
   rssFeedsInitialized: false,
@@ -168,6 +168,131 @@ const LOGIN_ENTRIES: LoginEntry[] = [
     validity: "通常 7–14 天",
   },
 ];
+
+interface AiProvider {
+  key: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  keyUrl: string;
+  note: string;
+}
+
+const AI_PROVIDERS: AiProvider[] = [
+  {
+    key: "deepseek",
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+    keyUrl: "https://platform.deepseek.com/api_keys",
+    note: "便宜、稳定，中文新闻理解够用。",
+  },
+  {
+    key: "moonshot",
+    label: "月之暗面 Kimi",
+    baseUrl: "https://api.moonshot.cn/v1",
+    models: ["moonshot-v1-8k", "moonshot-v1-32k", "kimi-latest"],
+    keyUrl: "https://platform.moonshot.cn/console/api-keys",
+    note: "长文理解好，适合正文很长的报道。",
+  },
+  {
+    key: "dashscope",
+    label: "阿里云百炼（通义）",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: ["qwen-plus", "qwen-turbo", "qwen-max"],
+    keyUrl: "https://bailian.console.aliyun.com/",
+    note: "国内直连稳定，有免费额度。",
+  },
+  {
+    key: "zhipu",
+    label: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    models: ["glm-4-flash", "glm-4-air", "glm-4-plus"],
+    keyUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+    note: "glm-4-flash 免费额度较多。",
+  },
+  {
+    key: "siliconflow",
+    label: "硅基流动 SiliconFlow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    models: ["Qwen/Qwen2.5-7B-Instruct", "deepseek-ai/DeepSeek-V3"],
+    keyUrl: "https://cloud.siliconflow.cn/account/ak",
+    note: "聚合多种开源模型，价格低。",
+  },
+  {
+    key: "openrouter",
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    models: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-flash-1.5"],
+    keyUrl: "https://openrouter.ai/keys",
+    note: "一个 Key 用多家模型，需要能访问境外网络。",
+  },
+  {
+    key: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    models: ["gpt-4o-mini", "gpt-4o"],
+    keyUrl: "https://platform.openai.com/api-keys",
+    note: "需要能访问境外网络。",
+  },
+  {
+    key: "volcengine",
+    label: "火山方舟（豆包）",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    models: ["doubao-pro-32k"],
+    keyUrl: "https://console.volcengine.com/ark",
+    note: "模型名要填方舟里创建的推理接入点 ID。",
+  },
+  {
+    key: "ollama",
+    label: "Ollama（本地）",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["llama3.1", "qwen2.5", "deepseek-r1"],
+    keyUrl: "https://ollama.com/download",
+    note: "完全本地，不需要 Key，也不上传任何内容。",
+  },
+  {
+    key: "custom",
+    label: "自定义（OpenAI 兼容）",
+    baseUrl: "",
+    models: [],
+    keyUrl: "",
+    note: "自己填 API 地址；模型名以「获取模型」返回的为准。",
+  },
+];
+
+function providerByBaseUrl(baseUrl: string): AiProvider | null {
+  const url = (baseUrl || "").trim().replace(/\/+$/, "");
+  if (!url) return null;
+  return (
+    AI_PROVIDERS.find(
+      (provider) =>
+        provider.baseUrl && url.startsWith(provider.baseUrl.replace(/\/+$/, ""))
+    ) || null
+  );
+}
+
+function friendlyAiError(raw: string): string {
+  const msg = (raw || "").trim();
+  if (!msg) return "没有返回内容；打开主页「运行日志」看最后一行";
+  if (/item not found/i.test(msg)) return "这条新闻不在数据库里，先刷新一次再点解读";
+  if (/401|invalid.*(key|token)|unauthorized|authentication/i.test(msg)) {
+    return "API Key 无效或已过期，重新复制一次再保存";
+  }
+  if (/404|model.*not.*(found|exist)|does not exist|no such model/i.test(msg)) {
+    return "模型名不存在；在「服务商」里重新选一个，或点「获取模型」";
+  }
+  if (/429|rate.?limit|quota|额度/i.test(msg)) {
+    return "请求太频繁或额度用尽，等一会儿再试";
+  }
+  if (/timeout|timed out|ETIMEDOUT|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+    return "连不上 AI 服务；检查网络、代理或换一个服务商";
+  }
+  if (/JSON/i.test(msg)) {
+    return "模型没有按格式返回；重试一次，仍失败就换模型";
+  }
+  return msg;
+}
 
 function daysAgo(iso: string): string {
   const ts = Date.parse(iso || "");
@@ -2031,7 +2156,7 @@ export default class InfoTrackerPlugin extends Plugin {
       new Notice("正在生成 AI 解读…");
       const text = await ai.interpret(item.title, item.summary || "");
       if (!text) {
-        new Notice(`AI 解读失败：${ai.error || "检查 API Key"}`);
+        new Notice(`AI 解读失败：${friendlyAiError(ai.error || "")}`, 12000);
         return;
       }
       this.setAiPendingLabel(itemId, "正在写入");
@@ -2045,16 +2170,22 @@ export default class InfoTrackerPlugin extends Plugin {
     }
 
     const readAiPayload = () => {
-      const line = this.lastLog
+      const lines = this.lastLog
         .split("\n")
         .map((l) => l.trim())
-        .filter((l) => l.startsWith("{"))
-        .pop();
-      try {
-        return line ? JSON.parse(line) : null;
-      } catch {
-        return null;
+        .filter(Boolean);
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        const line = lines[i];
+        if (!line.startsWith("{")) continue;
+        try {
+          const value = JSON.parse(line);
+          if (value && typeof value.ok === "boolean") return value;
+        } catch {
+          // 不是完整 JSON，继续往前找
+        }
       }
+      const tail = lines.filter((l) => !l.startsWith("{")).pop() || "";
+      return tail ? { ok: false, error: tail } : null;
     };
 
     await this.runCli(["ai-one", "--item", String(itemId)], true, true);
@@ -2077,7 +2208,7 @@ export default class InfoTrackerPlugin extends Plugin {
           : "AI 解读已生成，但没能插入当前日报；请在阅读模式下重试"
       );
     } else {
-      new Notice(`AI 解读失败：${payload?.error || "看主页的运行日志"}`);
+      new Notice(`AI 解读失败：${friendlyAiError(payload?.error || "")}`, 12000);
     }
     await this.view?.refresh();
     } finally {
@@ -2534,7 +2665,7 @@ export default class InfoTrackerPlugin extends Plugin {
     }
     const text = await ai.interpret(item.title, item.summary);
     if (!text) {
-      new Notice(`AI 解读失败：${ai.error || "没有返回内容"}`);
+      new Notice(`AI 解读失败：${friendlyAiError(ai.error || "")}`, 12000);
       return;
     }
     this.simpleAiText[item.id] = text;
@@ -2605,6 +2736,7 @@ export class TrackerHomeView extends ItemView {
   private rssQuery = "";
   private rssFilter: "all" | "unread" | "watch" = "all";
   private simpleSourcesOpen = false;
+  private sourcesOpen = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: InfoTrackerPlugin) {
     super(leaf);
@@ -3444,26 +3576,31 @@ export class TrackerHomeView extends ItemView {
       summary.createEl("span", { cls: "it-sources-title", text: "选择来源" });
       return;
     }
+    card.open = this.sourcesOpen;
+    card.addEventListener("toggle", () => {
+      this.sourcesOpen = card.open;
+    });
     const count = (list: SourceInfo[]) =>
       `${list.filter((source) => source.enabled).length}/${list.length}`;
     const cn = status.sources.filter((source) => source.region === "cn");
     const intl = status.sources.filter((source) => source.region !== "cn");
     summary.createEl("span", { cls: "it-sources-title", text: "选择来源" });
-    summary.createEl("span", {
-      cls: "it-sources-meta",
-      text: `国内 ${count(cn)} · 国外 ${count(intl)}`,
-    });
+    const metaEl = summary.createEl("span", { cls: "it-sources-meta" });
     summary.createEl("span", { cls: "it-sources-action" });
-    const names = status.sources
-      .filter((source) => source.enabled)
-      .slice(0, 6)
-      .map((source) => source.label);
-    summary.createEl("span", {
-      cls: "it-sources-preview",
-      text: names.length
-        ? `${names.join(" · ")}${status.sources.length > names.length ? ` · 等 ${status.sources.length} 个来源` : ""}`
-        : "还没有启用来源",
-    });
+    const previewEl = summary.createEl("span", { cls: "it-sources-preview" });
+    const updateSummary = () => {
+      metaEl.setText(`国内 ${count(cn)} · 国外 ${count(intl)}`);
+      const names = status.sources
+        .filter((source) => source.enabled)
+        .slice(0, 6)
+        .map((source) => source.label);
+      previewEl.setText(
+        names.length
+          ? `${names.join(" · ")}${status.sources.length > names.length ? ` · 等 ${status.sources.length} 个来源` : ""}`
+          : "还没有启用来源"
+      );
+    };
+    updateSummary();
 
     const grid = card.createEl("div", { cls: "it-sources" });
     const groups: Record<string, SourceInfo[]> = { cn: [], intl: [] };
@@ -3487,11 +3624,25 @@ export class TrackerHomeView extends ItemView {
           source.key.toLowerCase().includes(entry.key)
         );
         const logged = !!(login && status.cookies?.[login.key]);
-        if (login && (login.requiresLogin || logged)) {
-          row.createEl("span", {
-            cls: `it-source-badge ${logged ? "is-on" : ""}`,
-            text: logged ? "已登录" : "需要登录",
+        if (login) {
+          const badge = row.createEl("span", {
+            cls: `it-source-badge ${logged ? "is-on" : "is-off"}`,
+            text: logged ? "已登录" : "未登录",
           });
+          badge.title = logged
+            ? `${login.label}登录态已保存`
+            : login.requiresLogin
+              ? `${login.label}必须登录后才能抓取，点下方「登录态」完成登录`
+              : `${login.label}可以不登录，登录后能拿到更完整的数据`;
+          if (!logged) {
+            badge.addClass("is-clickable");
+            badge.onclick = (event) => {
+              event.preventDefault();
+              card
+                .querySelector(".it-cookie-block")
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            };
+          }
         }
         checkbox.onchange = async () => {
           if (login?.requiresLogin && !logged && checkbox.checked) {
@@ -3502,18 +3653,25 @@ export class TrackerHomeView extends ItemView {
               ?.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
           }
-          if (source.key.startsWith("rss:") && source.url) {
-            await this.plugin.runCli(
-              ["toggle-feed", "--url", source.url, "--on", checkbox.checked ? "1" : "0"],
-              true
-            );
-          } else {
-            await this.plugin.saveOverrides({
-              sources: { [source.key]: { enabled: checkbox.checked } },
-            });
+          checkbox.disabled = true;
+          try {
+            if (source.key.startsWith("rss:") && source.url) {
+              await this.plugin.runCli(
+                ["toggle-feed", "--url", source.url, "--on", checkbox.checked ? "1" : "0"],
+                true
+              );
+            } else {
+              await this.plugin.saveOverrides({
+                sources: { [source.key]: { enabled: checkbox.checked } },
+              });
+              await this.plugin.runCli(["status"], true);
+            }
+            // 就地更新，不整页重绘：重绘会把 <details> 折叠回去，导致每次只能勾一个
+            source.enabled = checkbox.checked;
+            updateSummary();
+          } finally {
+            checkbox.disabled = false;
           }
-          await this.plugin.runCli(["status"], true);
-          await this.refresh();
         };
       }
     }
@@ -3681,24 +3839,47 @@ export class TrackerHomeView extends ItemView {
       text: "不是问答框。它按固定流程拆解事实、信源、矛盾、利益、反方与可证伪条件；AI 不参与排序，最终判断由你确认。",
     });
 
-    if (!status?.ai?.has_key) {
-      const guide = card.createEl("div", { cls: "it-ai-guide" });
-      guide.createEl("div", { cls: "it-subhead", text: "没有 API Key？按下面步骤配置" });
-      const steps = guide.createEl("ol", { cls: "it-install-steps" });
-      for (const text of [
-        "打开 DeepSeek 开放平台，注册或登录。",
-        "在「API Keys」里创建一个 Key，复制保存。",
-        "回到这里：API 地址填 https://api.deepseek.com/v1，点「获取模型」选择可用模型。",
-        "把 Key 粘贴到下面，点「保存」或「测试连接」。",
-      ]) {
-        steps.createEl("li", { text });
-      }
-      const open = guide.createEl("button", {
-        text: "去 DeepSeek 获取 API Key",
-        cls: "mod-cta",
+    const currentProvider =
+      providerByBaseUrl(status?.ai?.base_url || "") || AI_PROVIDERS[0];
+
+    const guideBox = !status?.ai?.has_key
+      ? card.createEl("div", { cls: "it-ai-guide" })
+      : null;
+    let guideSteps: HTMLElement | null = null;
+    let guideButton: HTMLButtonElement | null = null;
+    if (guideBox) {
+      guideBox.createEl("div", {
+        cls: "it-subhead",
+        text: "没有 API Key？按下面步骤配置",
       });
-      open.onclick = () => window.open("https://platform.deepseek.com/api_keys", "_blank");
+      guideSteps = guideBox.createEl("ol", { cls: "it-install-steps" });
+      guideButton = guideBox.createEl("button", { cls: "mod-cta" });
     }
+
+    const renderGuide = (provider: AiProvider) => {
+      if (!guideSteps || !guideButton) return;
+      guideSteps.empty();
+      const lines =
+        provider.key === "ollama"
+          ? [
+              "先安装 Ollama，再在终端运行 ollama pull 模型名。",
+              "API 地址保持 http://127.0.0.1:11434/v1，Key 随便填一个（本地不校验）。",
+              "点「获取模型」选择已下载的模型。",
+            ]
+          : [
+              `打开${provider.label}控制台，注册或登录。`,
+              "在控制台里创建 API Key，复制保存。",
+              `API 地址填 ${provider.baseUrl || "服务商提供的地址"}，点「获取模型」选择可用模型。`,
+              "把 Key 粘贴到下面，点「保存」或「测试连接」。",
+            ];
+      for (const text of lines) guideSteps!.createEl("li", { text });
+      guideButton!.setText(
+        provider.keyUrl ? `去${provider.label}获取 API Key` : "查看说明"
+      );
+      guideButton!.onclick = () => {
+        if (provider.keyUrl) window.open(provider.keyUrl, "_blank");
+      };
+    };
 
     const form = card.createEl("div", { cls: "it-form" });
 
@@ -3706,6 +3887,14 @@ export class TrackerHomeView extends ItemView {
     const enabled = enabledRow.createEl("input", { type: "checkbox" });
     enabled.checked = !!status?.ai?.enabled;
     enabledRow.createEl("span", { text: "启用 AI（自动翻译、日报解读与追问）" });
+
+    const providerRow = form.createEl("div", { cls: "it-field" });
+    providerRow.createEl("span", { text: "服务商", cls: "it-field-label" });
+    const providerSelect = providerRow.createEl("select", { cls: "it-input" });
+    for (const provider of AI_PROVIDERS) {
+      providerSelect.createEl("option", { value: provider.key, text: provider.label });
+    }
+    providerSelect.value = currentProvider.key;
 
     const base = form.createEl("input", { type: "text", cls: "it-input" });
     base.placeholder = "API 地址，例如 https://api.deepseek.com/v1";
@@ -3738,21 +3927,34 @@ export class TrackerHomeView extends ItemView {
       }
     };
 
-    const knownModels = /deepseek/i.test(base.value || status?.ai?.base_url || "")
-      ? ["deepseek-flash", "deepseek-v4-pro"]
-      : [];
+    const modelHint = form.createEl("div", { cls: "it-hint" });
     const savedModel = status?.ai?.model || "";
-    fillModelSelect(
-      Array.from(new Set([...knownModels, ...(savedModel ? [savedModel] : [])])),
-      savedModel
+    const initialModels = Array.from(
+      new Set([
+        ...currentProvider.models,
+        ...(savedModel ? [savedModel] : []),
+      ])
     );
+    fillModelSelect(initialModels, savedModel);
+    renderGuide(currentProvider);
+
+    providerSelect.onchange = () => {
+      const provider =
+        AI_PROVIDERS.find((item) => item.key === providerSelect.value) || AI_PROVIDERS[0];
+      if (provider.baseUrl) base.value = provider.baseUrl;
+      if (provider.models.length) {
+        fillModelSelect(provider.models, "");
+      } else {
+        fillModelSelect(savedModel ? [savedModel] : [], savedModel);
+      }
+      modelHint.setText(provider.note || "模型名以「获取模型」返回的列表为准。");
+      renderGuide(provider);
+    };
+    modelHint.setText(currentProvider.note || "模型名以「获取模型」返回的列表为准。");
     modelSelect.onchange = () => {
       model.toggleClass("is-hidden", modelSelect.value !== "自定义");
       if (modelSelect.value !== "自定义") model.value = modelSelect.value;
     };
-
-    const modelHint = form.createEl("div", { cls: "it-hint" });
-    modelHint.setText("模型名以「获取模型」返回的列表为准。");
 
     const fetchModels = modelRow.createEl("button", { text: "获取模型", cls: "it-mini" });
     fetchModels.onclick = async () => {
@@ -4821,7 +5023,7 @@ class TrackerSettingTab extends PluginSettingTab {
       .setDesc("点主页 AI 卡片的「获取模型」读取账号可用模型；也可以填任何 OpenAI 兼容模型名")
       .addText((text) =>
         text
-          .setPlaceholder("deepseek-flash")
+          .setPlaceholder("deepseek-chat")
           .setValue(settings.model)
           .onChange((value) => {
             settings.model = value.trim();
