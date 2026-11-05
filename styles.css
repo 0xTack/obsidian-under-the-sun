@@ -588,6 +588,12 @@
   height: 1em;
 }
 
+.it-chat-send-text {
+  display: none;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .it-chat-send:hover {
   background: transparent !important;
   box-shadow: none !important;
@@ -955,14 +961,27 @@
     font-size: 14px;
   }
 
+  body.is-mobile .it-chat-input-wrap {
+    flex-wrap: nowrap;
+  }
+
   body.is-mobile .it-chat-send {
-    width: 1.8em;
-    height: 1.8em;
+    width: auto;
+    min-width: 3.2em;
+    height: 2em;
+    padding: 0 10px;
+    border-radius: 6px;
+    background: var(--interactive-accent) !important;
+    color: var(--text-on-accent) !important;
   }
 
   body.is-mobile .it-chat-send svg {
-    width: 1.2em;
-    height: 1.2em;
+    display: none;
+  }
+
+  body.is-mobile .it-chat-send-text {
+    display: inline;
+    font-weight: 500;
   }
 }
 

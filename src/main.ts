@@ -4467,6 +4467,7 @@ class ChatModal extends Modal {
       attr: { "aria-label": "发送", title: "发送" },
     });
     setIcon(send, "send");
+    send.createEl("span", { cls: "it-chat-send-text", text: "发送" });
     this.sendBtn = send;
     send.onclick = () => this.send();
     input.addEventListener("keydown", (event) => {
