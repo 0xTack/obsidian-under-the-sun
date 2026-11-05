@@ -3249,7 +3249,9 @@ export class TrackerHomeView extends ItemView {
       }
     };
 
-    const knownModels = ["deepseek-flash", "deepseek-v4-pro"];
+    const knownModels = /deepseek/i.test(base.value || status?.ai?.base_url || "")
+      ? ["deepseek-flash", "deepseek-v4-pro"]
+      : [];
     const savedModel = status?.ai?.model || "";
     fillModelSelect(
       Array.from(new Set([...knownModels, ...(savedModel ? [savedModel] : [])])),
