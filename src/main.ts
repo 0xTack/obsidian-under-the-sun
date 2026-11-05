@@ -5262,8 +5262,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const secM3 = this.settingSection(
       sections,
       "AI",
-      "服务商、Key、模型 · 仅本机",
-      !settings.aiEnabled || !settings.apiKey
+      "服务商、Key、模型 · 仅本机"
     );
     new Setting(secM3)
       .setName("启用 AI")
@@ -5406,8 +5405,7 @@ class TrackerSettingTab extends PluginSettingTab {
       this.settingSection(
         sections,
         "AI",
-        "服务商、Key、模型 · 仅本机",
-        !this.plugin.settings.aiEnabled || !this.plugin.settings.apiKey
+        "服务商、Key、模型 · 仅本机"
       )
     );
     const backendOk = this.plugin.backendHealth.ok;
