@@ -721,7 +721,7 @@ export default class InfoTrackerPlugin extends Plugin {
   ): Promise<{ ok: boolean; message: string }> {
     const key = apiKey.trim();
     if (!key) {
-      const result = await this.backend.aiTest();
+      const result = await this.backend.aiTest(model, baseUrl);
       if (result) return result;
       return {
         ok: false,

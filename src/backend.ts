@@ -174,14 +174,17 @@ export class BackendClient {
     }
   }
 
-  async aiTest(): Promise<{ ok: boolean; message: string; model?: string } | null> {
+  async aiTest(
+    model?: string,
+    baseUrl?: string
+  ): Promise<{ ok: boolean; message: string; model?: string } | null> {
     if (!this.configured) return null;
     try {
       const res = await requestUrl({
         url: this.endpoint("/ai/test"),
         method: "POST",
         headers: { ...this.headers(), "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ model: model || "", base_url: baseUrl || "" }),
         throw: false,
       });
       if (res.status < 200 || res.status >= 300) return null;
