@@ -2935,3 +2935,44 @@ h2 .it-timeline-sort b {
 .callout[data-callout="tracking"] .callout-content p {
   margin: 0.1em 0;
 }
+
+/* 手机端简讯：强制单列块级排版，避免复选框和正文穿插 */
+@media (max-width: 600px) {
+  body.is-mobile .callout[data-callout="brief"],
+  body.is-mobile .callout[data-callout^="brief-"] {
+    display: block !important;
+    font-size: 0.86em !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-title {
+    display: block !important;
+    margin-bottom: 0.3em !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-content {
+    display: block !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-content > p {
+    display: block !important;
+    width: 100% !important;
+    clear: both !important;
+    margin: 0.3em 0 !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-content ul.contains-task-list {
+    display: block !important;
+    margin: 0.4em 0 0 !important;
+    padding-left: 1.2em !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-content li.task-list-item {
+    display: list-item !important;
+    margin: 0.15em 0 !important;
+  }
+
+  body.is-mobile .callout[data-callout^="brief"] > .callout-content .callout {
+    display: block !important;
+    margin: 0.4em 0 !important;
+  }
+}

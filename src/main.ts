@@ -2026,18 +2026,26 @@ export default class InfoTrackerPlugin extends Plugin {
       return;
     }
 
-    await this.runCli(["ai-one", "--item", String(itemId)], true, true);
-    const line = this.lastLog
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith("{"))
-      .pop();
+    const readAiPayload = () => {
+      const line = this.lastLog
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith("{"))
+        .pop();
+      try {
+        return line ? JSON.parse(line) : null;
+      } catch {
+        return null;
+      }
+    };
 
-    let payload: any = null;
-    try {
-      payload = line ? JSON.parse(line) : null;
-    } catch {
-      payload = null;
+    await this.runCli(["ai-one", "--item", String(itemId)], true, true);
+    let payload: any = readAiPayload();
+    if (!(payload?.ok && payload.text)) {
+      // 偶发超时/空返回时重试一次，避免单条解读直接失败
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 700));
+      await this.runCli(["ai-one", "--item", String(itemId)], true, true);
+      payload = readAiPayload();
     }
 
     if (payload?.ok && payload.text) {
@@ -2179,13 +2187,6 @@ export default class InfoTrackerPlugin extends Plugin {
           break;
         }
       }
-      const stripAiLink = (line: string) =>
-        line
-          .replace(/\s*·\s*\[🤖 AI 解读\]\([^)]*\)/g, "")
-          .replace(/\s*·\s*\[AI 解读\]\([^)]*\)/g, "");
-      lines[linkIndex] = stripAiLink(lines[linkIndex]);
-      lines[index] = stripAiLink(lines[index]);
-
       const chunks = text.split(/\n?\s*===\s*\n?/);
       let summary = chunks.length > 1 ? chunks[0].trim() : "";
       let deep = chunks.length > 1 ? chunks[1].trim() : text.trim();
