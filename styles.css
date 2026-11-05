@@ -2705,3 +2705,17 @@ h2 .it-timeline-sort b {
 .it-sources-card[open] .it-sources-preview {
   display: none;
 }
+
+.it-hint-label {
+  color: var(--text-muted);
+}
+
+.it-hint-emphasis {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.it-hint-strong {
+  color: var(--text-normal);
+  font-weight: 600;
+}

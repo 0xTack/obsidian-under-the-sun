@@ -3020,10 +3020,12 @@ export class TrackerHomeView extends ItemView {
     });
 
     if (intl.length) {
-      card.createEl("div", {
-        cls: "it-hint it-sources-hint",
-        text: "国外来源：不开启 AI 时保留外文原文，不会自动翻译成中文。",
-      });
+      const hint = card.createEl("div", { cls: "it-hint it-sources-hint" });
+      hint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
+      hint.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
+      hint.createEl("span", { text: " 时保留 " });
+      hint.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
+      hint.createEl("span", { text: "，不会自动翻译成中文。" });
     }
 
     const grid = card.createEl("div", { cls: "it-sources" });
@@ -3934,10 +3936,14 @@ class SourceTestModal extends Modal {
       cls: "it-hint",
       text: "逐个测试热榜与 RSS 源。结果取决于本机网络、代理和本地增强服务的运行环境；被阻断或超时的源会被跳过。",
     });
-    contentEl.createEl("p", {
-      cls: "it-hint",
-      text: "国外来源建议打开 AI：开启后翻译成中文摘要；不开启 AI 时直接显示外文原文。",
-    });
+    const foreignNote = contentEl.createEl("p", { cls: "it-hint" });
+    foreignNote.createEl("span", { text: "国外来源建议" });
+    foreignNote.createEl("span", { cls: "it-hint-emphasis", text: "打开 AI" });
+    foreignNote.createEl("span", { text: "：开启后翻译成中文摘要；" });
+    foreignNote.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
+    foreignNote.createEl("span", { text: " 时直接显示 " });
+    foreignNote.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
+    foreignNote.createEl("span", { text: "。" });
 
     const okCount = (rows: SourceTestResult[]) => rows.filter((row) => row.ok).length;
     const cn = this.results.filter((item) => item.region !== "intl");
@@ -4463,10 +4469,16 @@ class TrackerSettingTab extends PluginSettingTab {
           void this.plugin.applyReachableSources();
         })
       );
-    containerEl.createEl("p", {
+    const foreignHint = containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: "国外来源需要打开 AI 才会翻译成中文；不开启 AI 时直接显示外文原文。没有代理时，被阻断的源会被跳过。",
     });
+    foreignHint.createEl("span", { cls: "it-hint-label", text: "国外来源：" });
+    foreignHint.createEl("span", { cls: "it-hint-emphasis", text: "打开 AI" });
+    foreignHint.createEl("span", { text: " 才会翻译成中文；" });
+    foreignHint.createEl("span", { cls: "it-hint-emphasis", text: "不开启 AI" });
+    foreignHint.createEl("span", { text: " 时直接显示 " });
+    foreignHint.createEl("span", { cls: "it-hint-strong", text: "外文原文" });
+    foreignHint.createEl("span", { text: "。没有代理时，被阻断的源会被跳过。" });
 
     const status = await this.plugin.readStatus();
 
