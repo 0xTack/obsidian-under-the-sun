@@ -142,7 +142,7 @@ const LOGIN_ENTRIES: LoginEntry[] = [
   {
     key: "weibo",
     label: "微博",
-    url: "https://weibo.com/login.php",
+    url: "https://passport.weibo.com/sso/signin?entry=miniblog&source=SSO",
     cookieUrl: "https://weibo.com",
     required: ["SUB", "SUBP", "SSOLoginState"],
     requiresLogin: true,
@@ -830,8 +830,10 @@ export default class InfoTrackerPlugin extends Plugin {
     }
     const remote = (window as any).require?.("electron")?.remote;
     if (!remote?.BrowserWindow || !remote?.session) {
-      window.open(entry.url, "_blank");
-      new Notice(`当前环境不支持自动读取，已打开${entry.label}登录页，请手动粘贴 Cookie`, 10000);
+      new Notice(
+        `当前 Obsidian 版本不支持自动登录窗口；请展开「手动粘贴 Cookie（备用）」`,
+        10000
+      );
       return;
     }
 
@@ -892,6 +894,12 @@ export default class InfoTrackerPlugin extends Plugin {
       );
       if (ua) win.webContents.setUserAgent(ua);
       win.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
+      win.on("page-title-updated", (event: any) => {
+        event.preventDefault();
+        if (!win.isDestroyed()) win.setTitle(`登录${entry.label} · Under the Sun`);
+      });
+      win.center();
+      new Notice(`已打开${entry.label}独立登录窗口（不是系统浏览器），完成登录后会自动保存`, 8000);
     } catch (err) {
       new Notice(
         `打开${entry.label}登录窗口失败：${err instanceof Error ? err.message : String(err)}`,
@@ -3503,23 +3511,29 @@ export class TrackerHomeView extends ItemView {
     const loginRow = card.createEl("div", { cls: "it-login-row" });
     for (const entry of LOGIN_ENTRIES) {
       const logged = !!saved[entry.key];
-      const button = loginRow.createEl("button", { cls: "it-login-card" });
-      button.createEl("span", {
-        cls: "it-login-card-title",
+      const item = loginRow.createEl("div", { cls: "it-login-item" });
+      const button = item.createEl("button", {
         text: this.plugin.isMobile()
           ? `打开${entry.label}登录页`
           : `一键登录${entry.label}`,
+        cls: "it-mini it-login-button",
       });
+      // Obsidian 的 button 默认样式优先级很高，用内联样式压到紧凑高度
+      button.style.setProperty("height", "26px", "important");
+      button.style.setProperty("min-height", "0", "important");
+      button.style.setProperty("padding", "2px 8px", "important");
+      button.style.setProperty("font-size", "11px", "important");
+      button.style.setProperty("line-height", "1.2", "important");
       const stateText = entry.requiresLogin
         ? logged
           ? "已登录"
           : "未登录"
         : logged
-        ? "Cookie 已保存"
-        : "Cookie 可选";
+        ? "已保存"
+        : "可选";
       const stateClass = logged ? "is-on" : entry.requiresLogin ? "" : "is-off";
-      button.createEl("span", {
-        cls: `it-source-badge it-login-card-state ${stateClass}`,
+      item.createEl("span", {
+        cls: `it-source-badge it-login-state ${stateClass}`,
         text: stateText,
       });
       button.onclick = () => {
