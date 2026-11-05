@@ -5009,11 +5009,9 @@ class BackendInstallModal extends Modal {
     contentEl.createEl("h2", { text: "安装本地增强服务" });
 
     const warn = contentEl.createDiv({ cls: "it-warn-box" });
-    warn.createEl("strong", { text: "只能在 Mac 电脑上安装" });
+    warn.createEl("strong", { text: "仅支持 Mac 电脑端" });
     warn.createEl("div", {
-      text:
-        "手机、iPad、Windows、Linux 都不能安装，也不需要安装。" +
-        "手机端只负责阅读和 AI 解读，抓取与整理由电脑完成。",
+      text: "其它设备不需要安装，直接用插件即可。",
     });
 
     const steps = contentEl.createEl("ol", { cls: "it-install-steps" });
@@ -5028,7 +5026,7 @@ class BackendInstallModal extends Modal {
 
     contentEl.createEl("div", {
       cls: "it-hint",
-      text: "下载页只提供 macOS 版本。手机和 Windows 用户不需要点开它。",
+      text: "下载页只提供 macOS 版本。",
     });
 
     const actions = contentEl.createDiv({ cls: "it-actions" });
