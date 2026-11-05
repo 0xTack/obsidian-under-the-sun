@@ -2422,8 +2422,10 @@ export class TrackerHomeView extends ItemView {
   }
 
   private renderCustomAdd(host: HTMLElement, status: StatusPayload | null) {
-    const wrap = host.createEl("div", { cls: "it-add" });
-    wrap.createEl("div", { cls: "it-subhead", text: "添加跟踪" });
+    const wrap = host.createEl("details", { cls: "it-add" });
+    const summary = wrap.createEl("summary", { cls: "it-add-summary" });
+    summary.createEl("span", { cls: "it-add-title", text: "手动添加跟踪" });
+    summary.createEl("span", { cls: "it-add-action" });
 
     const form = wrap.createEl("div", { cls: "it-form" });
     const url = form.createEl("input", { type: "text", cls: "it-input" });
