@@ -3103,3 +3103,19 @@ h2 .it-timeline-sort b {
 .it-mobile-digest .it-news + .it-news {
   margin-top: 14px;
 }
+
+.it-warn-box {
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-orange);
+  background: rgba(255, 160, 60, 0.08);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.it-warn-box strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-normal);
+}

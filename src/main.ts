@@ -850,7 +850,7 @@ export default class InfoTrackerPlugin extends Plugin {
   }
 
   openBackendInstallGuide() {
-    window.open("https://0xtack.github.io/TokenPeek/under-the-sun/#install", "_blank");
+    new BackendInstallModal(this.app, this).open();
   }
 
   openInstallGuide() {
@@ -4931,6 +4931,74 @@ class ConfirmModal extends Modal {
       this.close();
       this.onConfirm();
     };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class BackendInstallModal extends Modal {
+  plugin: InfoTrackerPlugin;
+  private static readonly URL =
+    "https://0xtack.github.io/TokenPeek/under-the-sun/#install";
+
+  constructor(app: App, plugin: InfoTrackerPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("it-backend-modal");
+    contentEl.createEl("h2", { text: "安装本地增强服务" });
+
+    const warn = contentEl.createDiv({ cls: "it-warn-box" });
+    warn.createEl("strong", { text: "只能在 Mac 电脑上安装" });
+    warn.createEl("div", {
+      text:
+        "手机、iPad、Windows、Linux 都不能安装，也不需要安装。" +
+        "手机端只负责阅读和 AI 解读，抓取与整理由电脑完成。",
+    });
+
+    const steps = contentEl.createEl("ol", { cls: "it-install-steps" });
+    for (const text of [
+      "在 Mac 上打开下面的下载页。",
+      "下载「本地增强服务」，解压。",
+      "双击「① 双击我安装.command」。",
+      "看到「安装完成」后，回到 Obsidian 点「检测连接」。",
+    ]) {
+      steps.createEl("li", { text });
+    }
+
+    contentEl.createEl("div", {
+      cls: "it-hint",
+      text: "下载页只提供 macOS 版本。手机和 Windows 用户不需要点开它。",
+    });
+
+    const actions = contentEl.createDiv({ cls: "it-actions" });
+    const isMac = Platform.isMacOS && !Platform.isMobile;
+    const open = actions.createEl("button", {
+      text: isMac ? "打开下载页" : "复制下载页网址",
+      cls: "mod-cta",
+    });
+    open.onclick = async () => {
+      if (isMac) {
+        window.open(BackendInstallModal.URL, "_blank");
+        this.close();
+        return;
+      }
+      const ok = await copyText(BackendInstallModal.URL);
+      new Notice(
+        ok
+          ? "网址已复制。请到 Mac 电脑上打开它下载。"
+          : `请在 Mac 电脑上打开：${BackendInstallModal.URL}`,
+        12000
+      );
+    };
+    const close = actions.createEl("button", { text: "关闭" });
+    close.onclick = () => this.close();
   }
 
   onClose() {
