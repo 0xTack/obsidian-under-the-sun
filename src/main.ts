@@ -90,6 +90,7 @@ const LOGIN_ENTRIES = [
     url: "https://weibo.com/login.php",
     cookieUrl: "https://weibo.com",
     required: ["SUB", "SUBP"],
+    requiresLogin: true,
     validity: "通常 7–30 天",
   },
   {
@@ -98,6 +99,7 @@ const LOGIN_ENTRIES = [
     url: "https://www.zhihu.com/signin",
     cookieUrl: "https://www.zhihu.com",
     required: ["z_c0"],
+    requiresLogin: false,
     validity: "通常约 30 天",
   },
   {
@@ -106,6 +108,7 @@ const LOGIN_ENTRIES = [
     url: "https://www.xiaohongshu.com/login",
     cookieUrl: "https://www.xiaohongshu.com",
     required: ["web_session"],
+    requiresLogin: false,
     validity: "通常 7–14 天",
   },
 ];
@@ -3041,14 +3044,14 @@ export class TrackerHomeView extends ItemView {
           source.key.toLowerCase().includes(entry.key)
         );
         const logged = !!(login && status.cookies?.[login.key]);
-        if (login) {
+        if (login && (login.requiresLogin || logged)) {
           row.createEl("span", {
             cls: `it-source-badge ${logged ? "is-on" : ""}`,
-            text: logged ? "已登录" : "未登录",
+            text: logged ? "已登录" : "需要登录",
           });
         }
         checkbox.onchange = async () => {
-          if (login && !logged && checkbox.checked) {
+          if (login?.requiresLogin && !logged && checkbox.checked) {
             checkbox.checked = false;
             new Notice(`${source.label} 需要先登录 Cookie；请在下方「登录态」里完成登录`);
             card
@@ -3086,7 +3089,7 @@ export class TrackerHomeView extends ItemView {
 
   private renderCookies(host: HTMLElement, status: StatusPayload | null) {
     const card = host.createEl("div", { cls: "it-cookie-block" });
-    card.createEl("div", { cls: "it-subhead", text: "登录态（仅需登录的来源）" });
+    card.createEl("div", { cls: "it-subhead", text: "登录态（可选）" });
 
     const saved = status?.cookies || {};
     const meta = status?.cookie_meta || {};
@@ -3107,16 +3110,28 @@ export class TrackerHomeView extends ItemView {
       };
       loginRow.createEl("span", {
         cls: `it-source-badge ${logged ? "is-on" : ""}`,
-        text: logged ? "已登录" : "未登录",
+        text: entry.requiresLogin
+          ? logged
+            ? "已登录"
+            : "未登录"
+          : logged
+          ? "Cookie 已保存"
+          : "Cookie 可选",
       });
     }
 
     const guide = card.createEl("div", { cls: "it-cookie-guide" });
     guide.createEl("div", {
-      text: "点「打开登录页」登录，登录成功后把 Cookie 粘贴到下面。",
+      text: "微博：不填 Cookie 会走 RSS 镜像，热度值不真实；想要真实热度需要登录。",
     });
     guide.createEl("div", {
-      text: "手动方式：登录成功后按 F12 → Network → 刷新页面 → 点任意请求 → 复制请求头里的 Cookie，粘贴到下面。",
+      text: "知乎：热榜使用公开接口，不需要 Cookie；填了可用于抓取高赞回答。",
+    });
+    guide.createEl("div", {
+      text: "小红书：Cookie 不能绕过官方接口签名，热点仍走 RSS 镜像；镜像失效时需要换 rss_url。",
+    });
+    guide.createEl("div", {
+      text: "手动方式：在浏览器登录后按 F12 → Network → 刷新页面 → 点任意请求 → 复制请求头里的 Cookie，粘贴到下面。",
     });
     guide.createEl("div", {
       text: "有效期：微博通常 7–30 天，知乎约 30 天，小红书约 7–14 天。平台也可能随时提前失效；抓不到数据时重新登录一次即可。",
