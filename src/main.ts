@@ -134,6 +134,7 @@ interface LoginEntry {
   url: string;
   cookieUrl: string;
   required: string[];
+  anyOf?: string[];
   requiresLogin: boolean;
   validity: string;
 }
@@ -144,7 +145,8 @@ const LOGIN_ENTRIES: LoginEntry[] = [
     label: "微博",
     url: "https://passport.weibo.com/sso/signin?entry=miniblog&source=SSO",
     cookieUrl: "https://weibo.com",
-    required: ["SUB", "SUBP", "SSOLoginState"],
+    required: ["SUB", "SUBP"],
+    anyOf: ["SCF", "SSOLoginState", "SUHB"],
     requiresLogin: true,
     validity: "通常 7–30 天",
   },
@@ -848,8 +850,11 @@ export default class InfoTrackerPlugin extends Plugin {
     const readCookies = async () => {
       const cookies = await session.cookies.get({ url: entry.cookieUrl });
       const names = new Set(cookies.map((cookie: any) => cookie.name));
+      const ok =
+        entry.required.every((name) => names.has(name)) &&
+        (!entry.anyOf?.length || entry.anyOf.some((name) => names.has(name)));
       return {
-        ok: entry.required.every((name) => names.has(name)),
+        ok,
         value: cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; "),
       };
     };
@@ -3512,18 +3517,11 @@ export class TrackerHomeView extends ItemView {
     for (const entry of LOGIN_ENTRIES) {
       const logged = !!saved[entry.key];
       const item = loginRow.createEl("div", { cls: "it-login-item" });
-      const button = item.createEl("button", {
-        text: this.plugin.isMobile()
-          ? `打开${entry.label}登录页`
-          : `一键登录${entry.label}`,
-        cls: "it-mini it-login-button",
+      const button = item.createEl("span", {
+        text: `${entry.label}登录`,
+        cls: "it-login-button",
+        attr: { role: "button", tabindex: "0" },
       });
-      // Obsidian 的 button 默认样式优先级很高，用内联样式压到紧凑高度
-      button.style.setProperty("height", "26px", "important");
-      button.style.setProperty("min-height", "0", "important");
-      button.style.setProperty("padding", "2px 8px", "important");
-      button.style.setProperty("font-size", "11px", "important");
-      button.style.setProperty("line-height", "1.2", "important");
       const stateText = entry.requiresLogin
         ? logged
           ? "已登录"
@@ -3536,13 +3534,20 @@ export class TrackerHomeView extends ItemView {
         cls: `it-source-badge it-login-state ${stateClass}`,
         text: stateText,
       });
-      button.onclick = () => {
+      const openLogin = () => {
         if (this.plugin.isMobile()) {
           window.open(entry.url, "_blank");
           new Notice(`已打开${entry.label}登录页，登录后请手动粘贴 Cookie`, 10000);
           return;
         }
         void this.plugin.autoLoginCookie(entry);
+      };
+      button.onclick = openLogin;
+      button.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLogin();
+        }
       };
     }
 
@@ -3667,7 +3672,7 @@ export class TrackerHomeView extends ItemView {
     const enabledRow = form.createEl("label", { cls: "it-source" });
     const enabled = enabledRow.createEl("input", { type: "checkbox" });
     enabled.checked = !!status?.ai?.enabled;
-    enabledRow.createEl("span", { text: "启用 AI（仅手动解读，不自动生成）" });
+    enabledRow.createEl("span", { text: "启用 AI（自动翻译、日报解读与追问）" });
 
     const base = form.createEl("input", { type: "text", cls: "it-input" });
     base.placeholder = "API 地址，例如 https://api.deepseek.com/v1";

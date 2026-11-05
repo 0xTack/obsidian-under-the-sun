@@ -135,8 +135,14 @@
 .it-login-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 14px;
+  gap: 10px 12px;
   margin-bottom: 10px;
+}
+
+@media (max-width: 380px) {
+  .it-login-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .it-login-item {
@@ -147,19 +153,33 @@
 }
 
 .it-login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 1 1 auto;
   min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--button-radius);
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: 11px;
+  line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
 }
 
-.it-login-row .it-login-button {
-  height: 26px !important;
-  min-height: 26px !important;
-  padding: 2px 8px !important;
-  font-size: 11px !important;
-  line-height: 1.2 !important;
+.it-login-button:hover {
+  background: var(--interactive-hover);
+}
+
+.it-login-button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
 }
 
 .it-login-state {
@@ -169,11 +189,6 @@
   font-size: var(--font-ui-smaller);
 }
 
-@media (max-width: 900px) {
-  .it-login-row {
-    grid-template-columns: 1fr;
-  }
-}
 
 .it-source-badge.is-off {
   color: var(--text-muted);
