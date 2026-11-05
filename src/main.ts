@@ -4009,13 +4009,6 @@ export class TrackerHomeView extends ItemView {
       cls: "it-hint",
       text: "不是问答框。它按固定流程拆解事实、信源、矛盾、利益、反方与可证伪条件；AI 不参与排序，最终判断由你确认。",
     });
-    card.createEl("p", {
-      cls: "it-hint",
-      text:
-        "Key 只留在这台设备，换设备需要重新填写；" +
-        "不会写进笔记，也不随笔记库同步。手机和电脑各自保存各自的。",
-    });
-
     const currentProvider =
       providerByBaseUrl(status?.ai?.base_url || "") || AI_PROVIDERS[0];
 
