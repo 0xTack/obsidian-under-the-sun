@@ -4,6 +4,8 @@ An Obsidian plugin for RSS, daily digests, AI discussion, and an optional local 
 
 把每天的信息装订成一本可追溯的合订本。Obsidian 插件：信息溯源、每日日报、跟踪时间线与 AI 解读。跟踪话题会持续收进后续报道做成合订本。AI 不是通用问答，而是按证据链拆解事实、信源、矛盾与反方，还能直接把国外新闻翻译给你，一览知内外。
 
+作者：阿尔旦 · GitHub：`0xTack`
+
 ---
 
 ## 两种模式
@@ -171,7 +173,7 @@ npm run lint
 
 - 报告问题
 - 功能建议
-- 作者主页（Tack）
+- 作者主页（阿尔旦）
 
 反馈里不要粘贴 API Key、Cookie 或私人路径。
 

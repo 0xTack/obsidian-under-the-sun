@@ -5434,7 +5434,7 @@ class TrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("反馈").setHeading();
     new Setting(containerEl)
       .setName("GitHub Issues")
-      .setDesc("报告问题、提功能建议，或查看作者主页。")
+      .setDesc("作者：阿尔旦。报告问题、提功能建议，或查看作者主页。")
       .addButton((button) =>
         button
           .setButtonText("报告问题")
