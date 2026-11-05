@@ -4009,6 +4009,12 @@ export class TrackerHomeView extends ItemView {
       cls: "it-hint",
       text: "不是问答框。它按固定流程拆解事实、信源、矛盾、利益、反方与可证伪条件；AI 不参与排序，最终判断由你确认。",
     });
+    card.createEl("p", {
+      cls: "it-hint",
+      text:
+        "API Key 只保存在这台设备，不写进笔记，也不随 vault 同步；" +
+        "换设备（包括手机和电脑之间）需要各自重新填写。",
+    });
 
     const currentProvider =
       providerByBaseUrl(status?.ai?.base_url || "") || AI_PROVIDERS[0];
@@ -5256,7 +5262,7 @@ class TrackerSettingTab extends PluginSettingTab {
     const secM3 = this.settingSection(
       sections,
       "AI",
-      "服务商、Key、模型",
+      "服务商、Key、模型 · 仅本机",
       !settings.aiEnabled || !settings.apiKey
     );
     new Setting(secM3)
@@ -5400,7 +5406,7 @@ class TrackerSettingTab extends PluginSettingTab {
       this.settingSection(
         sections,
         "AI",
-        "服务商、Key、模型",
+        "服务商、Key、模型 · 仅本机",
         !this.plugin.settings.aiEnabled || !this.plugin.settings.apiKey
       )
     );
@@ -6017,7 +6023,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(host)
       .setName("API Key")
-      .setDesc("保存在这台设备的插件配置里，不写进笔记")
+      .setDesc("只保存在这台设备，不写进笔记、不随 vault 同步；换设备需要重新填写")
       .addText((text) => {
         text.inputEl.type = "password";
         text
@@ -6103,7 +6109,7 @@ class TrackerSettingTab extends PluginSettingTab {
             settings.model = payload.model;
             if (typedKey) settings.apiKey = typedKey;
             await this.plugin.saveSettings();
-            new Notice("AI 设置已保存");
+            new Notice("AI 设置已保存（Key 只留在这台设备）", 6000);
             await this.plugin.view?.refresh();
           })
       );
