@@ -4579,7 +4579,7 @@ class ConfirmModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: this.title });
     contentEl.createEl("p", { cls: "it-hint", text: this.message });
-    const actions = contentEl.createDiv({ cls: "it-actions is-centered" });
+    const actions = contentEl.createDiv({ cls: "it-actions is-split" });
     const cancel = actions.createEl("button", { text: "取消" });
     cancel.onclick = () => this.close();
     const run = actions.createEl("button", { text: this.confirmText, cls: "mod-cta" });

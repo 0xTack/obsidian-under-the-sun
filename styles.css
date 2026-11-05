@@ -3008,3 +3008,8 @@ h2 .it-timeline-sort b {
   margin-left: auto;
   margin-right: auto;
 }
+
+.it-actions.is-split {
+  justify-content: space-between;
+  padding: 0 20px;
+}
