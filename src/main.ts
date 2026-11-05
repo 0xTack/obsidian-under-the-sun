@@ -5396,6 +5396,14 @@ class TrackerSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("it-settings-pane");
     const sections = containerEl.createDiv({ cls: "it-settings" });
+    this.renderAiSettings(
+      this.settingSection(
+        sections,
+        "AI 解读",
+        "服务商、Key、模型",
+        !this.plugin.settings.aiEnabled || !this.plugin.settings.apiKey
+      )
+    );
     const backendOk = this.plugin.backendHealth.ok;
     const secRss = this.settingSection(
       sections,
@@ -5945,6 +5953,160 @@ class TrackerSettingTab extends PluginSettingTab {
       );
 
     this.renderSupport(containerEl);
+  }
+
+  private renderAiSettings(host: HTMLElement) {
+    const settings = this.plugin.settings;
+    let enabled = settings.aiEnabled;
+    let baseValue = settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
+    let modelValue = settings.model || DEFAULT_SETTINGS.model;
+    let typedKey = "";
+
+    let baseInput: any = null;
+    let modelInput: any = null;
+
+    const provider = providerByBaseUrl(baseValue);
+    new Setting(host)
+      .setName("服务商")
+      .setDesc(provider?.note || "选一个服务商会自动填好地址和常用模型")
+      .addDropdown((dropdown) => {
+        for (const item of AI_PROVIDERS) {
+          dropdown.addOption(item.key, item.label);
+        }
+        dropdown.setValue(provider?.key || "custom");
+        dropdown.onChange((value) => {
+          const next = AI_PROVIDERS.find((item) => item.key === value);
+          if (!next || value === "custom") return;
+          if (next.baseUrl) {
+            baseValue = next.baseUrl;
+            baseInput?.setValue(next.baseUrl);
+          }
+          if (next.models.length) {
+            modelValue = next.models[0];
+            modelInput?.setValue(next.models[0]);
+          }
+          baseSetting.setDesc(next.note || "OpenAI 兼容接口");
+        });
+      });
+
+    const baseSetting = new Setting(host)
+      .setName("API 地址")
+      .setDesc("OpenAI 兼容接口，例如 https://api.deepseek.com/v1")
+      .addText((text) => {
+        baseInput = text;
+        text
+          .setPlaceholder("https://api.deepseek.com/v1")
+          .setValue(baseValue)
+          .onChange((value) => {
+            baseValue = value.trim();
+          });
+      });
+
+    const modelSetting = new Setting(host)
+      .setName("模型")
+      .setDesc("点「获取模型」读取账号可用模型；也可以直接填")
+      .addText((text) => {
+        modelInput = text;
+        text
+          .setPlaceholder("deepseek-chat")
+          .setValue(modelValue)
+          .onChange((value) => {
+            modelValue = value.trim();
+          });
+      });
+
+    new Setting(host)
+      .setName("API Key")
+      .setDesc("保存在这台设备的插件配置里，不写进笔记")
+      .addText((text) => {
+        text.inputEl.type = "password";
+        text
+          .setPlaceholder(settings.apiKey ? "已保存（留空则不修改）" : "sk-...")
+          .onChange((value) => {
+            typedKey = value.trim();
+          });
+      });
+
+    new Setting(host)
+      .setName("推理强度")
+      .setDesc("支持推理的模型可填 low / medium / high；留空则不发送")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("", "默认");
+        dropdown.addOption("low", "low");
+        dropdown.addOption("medium", "medium");
+        dropdown.addOption("high", "high");
+        dropdown.setValue(settings.reasoningEffort || "");
+        dropdown.onChange((value) => {
+          settings.reasoningEffort = value;
+        });
+      });
+
+    new Setting(host)
+      .setName("启用 AI")
+      .setDesc("关闭后不再翻译和解读，其它功能不受影响")
+      .addToggle((toggle) =>
+        toggle.setValue(settings.aiEnabled).onChange((value) => {
+          enabled = value;
+        })
+      );
+
+    new Setting(host)
+      .setName("保存与测试")
+      .setDesc("保存后写入本地增强服务的配置，并同步到这台设备")
+      .addButton((button) =>
+        button
+          .setButtonText("获取模型")
+          .setClass("it-mini")
+          .onClick(async () => {
+            const notice = new Notice("正在读取可用模型…", 0);
+            const result = await this.plugin.listAiModels(baseValue, typedKey);
+            notice.hide();
+            if (!result.ok || !result.models.length) {
+              new Notice(result.error || "没有返回可用模型", 10000);
+              return;
+            }
+            modelValue = result.models[0];
+            modelInput?.setValue(result.models[0]);
+            new Notice(`已获取 ${result.models.length} 个模型，已填入第一个`, 6000);
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("测试连接")
+          .setClass("it-mini")
+          .onClick(async () => {
+            const notice = new Notice("正在测试 AI 连接…", 0);
+            const result = await this.plugin.testAiConnection(
+              baseValue,
+              modelValue,
+              typedKey
+            );
+            notice.hide();
+            new Notice(result.message, result.ok ? 6000 : 12000);
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("保存")
+          .setCta()
+          .onClick(async () => {
+            const payload: any = {
+              enabled,
+              base_url: baseValue || DEFAULT_SETTINGS.apiBaseUrl,
+              model: modelValue || DEFAULT_SETTINGS.model,
+              reasoning_effort: settings.reasoningEffort || "",
+            };
+            if (typedKey) payload.api_key = typedKey;
+            await this.plugin.saveOverrides({ ai: payload });
+            settings.aiEnabled = enabled;
+            settings.apiBaseUrl = payload.base_url;
+            settings.model = payload.model;
+            if (typedKey) settings.apiKey = typedKey;
+            await this.plugin.saveSettings();
+            new Notice("AI 设置已保存");
+            await this.plugin.view?.refresh();
+          })
+      );
   }
 
   private renderSupport(host: HTMLElement) {
