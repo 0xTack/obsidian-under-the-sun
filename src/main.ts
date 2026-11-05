@@ -5399,7 +5399,7 @@ class TrackerSettingTab extends PluginSettingTab {
     this.renderAiSettings(
       this.settingSection(
         sections,
-        "AI 解读",
+        "AI",
         "服务商、Key、模型",
         !this.plugin.settings.aiEnabled || !this.plugin.settings.apiKey
       )
