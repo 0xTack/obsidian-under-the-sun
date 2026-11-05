@@ -2208,3 +2208,60 @@ h2 .it-timeline-sort b {
 .it-backend-card {
   border: 1px solid var(--background-modifier-border);
 }
+
+.it-backend-bar {
+  margin: 0 0 12px;
+}
+
+.it-backend-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  text-align: left;
+}
+
+.it-backend-open.is-connected {
+  border-color: var(--color-green);
+}
+
+.it-backend-state {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.it-sources-card summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.it-sources-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.it-sources-card summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.it-sources-card[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.it-sources-card[open] summary {
+  margin-bottom: 10px;
+}
+
+.it-install-steps {
+  margin: 12px 0 18px;
+  padding-left: 20px;
+  color: var(--text-muted);
+  line-height: 1.8;
+}

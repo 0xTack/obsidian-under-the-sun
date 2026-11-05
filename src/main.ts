@@ -567,7 +567,11 @@ export default class InfoTrackerPlugin extends Plugin {
   }
 
   openBackendInstallGuide() {
-    window.open("https://0xtack.github.io/TokenPeek/under-the-sun/", "_blank");
+    window.open("https://0xtack.github.io/TokenPeek/under-the-sun/#install", "_blank");
+  }
+
+  openInstallGuide() {
+    new InstallGuideModal(this.app, this).open();
   }
 
   async checkBackend(): Promise<BackendHealth> {
@@ -2019,6 +2023,7 @@ export class TrackerHomeView extends ItemView {
       return;
     }
 
+    this.renderBackendBar(root);
     this.renderActions(root);
 
     if (status?.alerts?.unread) this.renderAlerts(root, status);
@@ -2031,7 +2036,6 @@ export class TrackerHomeView extends ItemView {
       this.renderSources(root, status);
       this.renderCookies(root, status);
       this.renderAI(root, status);
-      this.renderAdvanced(root, status);
     }
 
     const logHead = root.createEl("div", { cls: "it-section-head" });
@@ -2056,7 +2060,7 @@ export class TrackerHomeView extends ItemView {
     });
     const actions = card.createDiv({ cls: "it-actions" });
     const install = actions.createEl("button", { text: "下载安装包", cls: "mod-cta" });
-    install.onclick = () => plugin.openBackendInstallGuide();
+    install.onclick = () => plugin.openInstallGuide();
     const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
     check.onclick = async () => {
       const health = await plugin.checkBackend();
@@ -2175,6 +2179,22 @@ export class TrackerHomeView extends ItemView {
         void submit();
       }
     });
+  }
+
+  private renderBackendBar(root: HTMLElement) {
+    const health = this.plugin.backendHealth;
+    const bar = root.createDiv({ cls: "it-backend-bar" });
+    const button = bar.createEl("button", {
+      cls: `it-backend-open${health.ok ? " is-connected" : ""}`,
+    });
+    button.createEl("span", { text: "完整版后端" });
+    button.createEl("span", {
+      cls: "it-backend-state",
+      text: health.ok
+        ? `已连接${health.version ? ` · v${health.version}` : ""}`
+        : "未连接 · 点击设置",
+    });
+    button.onclick = () => new BackendSettingsModal(this.app, this.plugin).open();
   }
 
   private renderActions(root: HTMLElement) {
@@ -2460,9 +2480,14 @@ export class TrackerHomeView extends ItemView {
   }
 
   private renderSources(root: HTMLElement, status: StatusPayload | null) {
-    const card = root.createEl("div", { cls: "it-card" });
-    card.createEl("div", { cls: "it-section-head", text: "选择来源" });
-    if (!status) return;
+    const card = root.createEl("details", { cls: "it-card it-sources-card" });
+    const summary = card.createEl("summary", { cls: "it-section-head" });
+    if (!status) {
+      summary.setText("选择来源");
+      return;
+    }
+    const enabled = status.sources.filter((source) => source.enabled).length;
+    summary.setText(`选择来源 · ${enabled}/${status.sources.length} 启用`);
 
     const grid = card.createEl("div", { cls: "it-sources" });
     const groups: Record<string, SourceInfo[]> = { cn: [], intl: [] };
@@ -2498,64 +2523,6 @@ export class TrackerHomeView extends ItemView {
         };
       }
     }
-  }
-
-  private renderAdvanced(root: HTMLElement, status: StatusPayload | null) {
-    const card = root.createEl("details", { cls: "it-card it-advanced" });
-    card.createEl("summary", { text: "完整版后端 / 高级设置" });
-
-    const form = card.createEl("div", { cls: "it-form" });
-
-    const url = form.createEl("input", { type: "text", cls: "it-input" });
-    url.placeholder = "http://127.0.0.1:8765";
-    url.value = this.plugin.settings.backendUrl;
-
-    const token = form.createEl("input", { type: "password", cls: "it-input" });
-    token.placeholder = "后端 token（安装器会写入）";
-    token.value = this.plugin.settings.backendToken;
-
-    const statusRow = form.createEl("label", { cls: "it-source" });
-    const showStatus = statusRow.createEl("input", { type: "checkbox" });
-    showStatus.checked = this.plugin.settings.showStatusBar;
-    statusRow.createEl("span", { text: "在底部状态栏显示跟踪数量" });
-
-    const hint = form.createEl("div", { cls: "it-hint" });
-    const updateHint = () => {
-      const health = this.plugin.backendHealth;
-      hint.setText(
-        health.ok
-          ? `后端已连接${health.version ? ` · v${health.version}` : ""}`
-          : `后端未连接${health.error ? ` · ${health.error}` : ""}`
-      );
-    };
-    updateHint();
-
-    const actions = form.createEl("div", { cls: "it-actions" });
-    const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
-    check.onclick = async () => {
-      await this.plugin.checkBackend();
-      updateHint();
-    };
-    const install = actions.createEl("button", { text: "安装 / 更新后端", cls: "it-mini" });
-    install.onclick = () => this.plugin.openBackendInstallGuide();
-
-    const save = actions.createEl("button", { text: "保存高级设置", cls: "mod-cta" });
-    save.onclick = async () => {
-      this.plugin.settings.backendUrl = url.value.trim() || DEFAULT_SETTINGS.backendUrl;
-      this.plugin.settings.backendToken = token.value.trim();
-      this.plugin.settings.showStatusBar = showStatus.checked;
-      await this.plugin.saveSettings();
-      await this.plugin.checkBackend();
-      updateHint();
-      this.plugin.refreshStatusBar();
-      await this.refresh();
-      new Notice("高级设置已保存");
-    };
-
-    card.createEl("div", {
-      cls: "it-hint",
-      text: "完整版后端是独立安装的本地服务，插件只通过 127.0.0.1 调用它。不装后端时，RSS、AI、日报仍可使用。",
-    });
   }
 
   private renderCookies(root: HTMLElement, status: StatusPayload | null) {
@@ -3310,6 +3277,135 @@ class ChatModal extends Modal {
     if (this.statusTimer) window.clearTimeout(this.statusTimer);
     this.statusTimer = 0;
     this.renderer.unload();
+    this.contentEl.empty();
+  }
+}
+
+class InstallGuideModal extends Modal {
+  plugin: InfoTrackerPlugin;
+
+  constructor(app: App, plugin: InfoTrackerPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("it-backend-modal");
+    contentEl.createEl("h2", { text: "安装完整版后端" });
+    contentEl.createEl("p", {
+      cls: "it-hint",
+      text: "后端是独立安装的本地服务，插件不会被覆盖。装好后热榜、正文补全、聚类、跟踪和判断簿会解锁。",
+    });
+    const steps = contentEl.createEl("ol", { cls: "it-install-steps" });
+    for (const text of [
+      "下载 macOS 后端安装包。",
+      "解压后双击 install-backend.command。",
+      "安装器会写入 token、安装 launchd 后台服务。",
+      "重启 Obsidian，插件会自动连接。",
+    ]) {
+      steps.createEl("li", { text });
+    }
+    const actions = contentEl.createDiv({ cls: "it-actions" });
+    const open = actions.createEl("button", {
+      text: "在浏览器打开安装页",
+      cls: "mod-cta",
+    });
+    open.onclick = () => this.plugin.openBackendInstallGuide();
+    const check = actions.createEl("button", { text: "已安装，检测连接", cls: "it-mini" });
+    check.onclick = async () => {
+      const health = await this.plugin.checkBackend();
+      new Notice(health.ok ? "后端已连接" : "还没有连上，请确认安装器已完成");
+      if (health.ok) {
+        this.close();
+        await this.plugin.view?.refresh();
+      }
+    };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class BackendSettingsModal extends Modal {
+  plugin: InfoTrackerPlugin;
+  private urlEl!: HTMLInputElement;
+  private tokenEl!: HTMLInputElement;
+  private statusEl!: HTMLElement;
+  private showStatusEl!: HTMLInputElement;
+
+  constructor(app: App, plugin: InfoTrackerPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("it-backend-modal");
+    contentEl.createEl("h2", { text: "完整版后端" });
+    contentEl.createEl("p", {
+      cls: "it-hint",
+      text: "后端是独立安装的本地服务，插件只通过 127.0.0.1 调用它。不装后端时，RSS、AI、日报仍可使用。",
+    });
+
+    const form = contentEl.createEl("div", { cls: "it-form" });
+    this.urlEl = form.createEl("input", { type: "text", cls: "it-input" });
+    this.urlEl.placeholder = "http://127.0.0.1:8765";
+    this.urlEl.value = this.plugin.settings.backendUrl;
+
+    this.tokenEl = form.createEl("input", { type: "password", cls: "it-input" });
+    this.tokenEl.placeholder = "后端 token（安装器会写入）";
+    this.tokenEl.value = this.plugin.settings.backendToken;
+
+    const showRow = form.createEl("label", { cls: "it-source" });
+    this.showStatusEl = showRow.createEl("input", { type: "checkbox" });
+    this.showStatusEl.checked = this.plugin.settings.showStatusBar;
+    showRow.createEl("span", { text: "在底部状态栏显示跟踪数量" });
+
+    this.statusEl = form.createEl("div", { cls: "it-hint" });
+    this.updateStatus();
+
+    const actions = form.createEl("div", { cls: "it-actions" });
+    const check = actions.createEl("button", { text: "检测连接", cls: "it-mini" });
+    check.onclick = async () => {
+      await this.plugin.checkBackend();
+      this.updateStatus();
+      await this.plugin.view?.refresh();
+    };
+    const install = actions.createEl("button", {
+      text: "安装 / 更新后端",
+      cls: "it-mini",
+    });
+    install.onclick = () => this.plugin.openBackendInstallGuide();
+    const save = actions.createEl("button", { text: "保存", cls: "mod-cta" });
+    save.onclick = async () => {
+      this.plugin.settings.backendUrl =
+        this.urlEl.value.trim() || DEFAULT_SETTINGS.backendUrl;
+      this.plugin.settings.backendToken = this.tokenEl.value.trim();
+      this.plugin.settings.showStatusBar = this.showStatusEl.checked;
+      await this.plugin.saveSettings();
+      await this.plugin.checkBackend();
+      this.plugin.refreshStatusBar();
+      this.updateStatus();
+      await this.plugin.view?.refresh();
+      new Notice("后端设置已保存");
+    };
+  }
+
+  private updateStatus() {
+    if (!this.statusEl) return;
+    const health = this.plugin.backendHealth;
+    this.statusEl.setText(
+      health.ok
+        ? `已连接${health.version ? ` · v${health.version}` : ""}`
+        : `未连接${health.error ? ` · ${health.error}` : ""}`
+    );
+  }
+
+  onClose() {
     this.contentEl.empty();
   }
 }
