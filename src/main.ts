@@ -2034,7 +2034,6 @@ export class TrackerHomeView extends ItemView {
       this.renderMobileHint(root, status);
     } else {
       this.renderSources(root, status);
-      this.renderCookies(root, status);
       this.renderAI(root, status);
     }
 
@@ -2527,7 +2526,25 @@ export class TrackerHomeView extends ItemView {
         const checkbox = row.createEl("input", { type: "checkbox" });
         checkbox.checked = source.enabled;
         row.createEl("span", { text: source.label });
+        const login = LOGIN_ENTRIES.find((entry) =>
+          source.key.toLowerCase().includes(entry.key)
+        );
+        const logged = !!(login && status.cookies?.[login.key]);
+        if (login) {
+          row.createEl("span", {
+            cls: `it-source-badge ${logged ? "is-on" : ""}`,
+            text: logged ? "已登录" : "需登录",
+          });
+        }
         checkbox.onchange = async () => {
+          if (login && !logged && checkbox.checked) {
+            checkbox.checked = false;
+            new Notice(`${source.label} 需要先登录 Cookie；请在下方「登录态」里完成登录`);
+            card
+              .querySelector(".it-cookie-block")
+              ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+          }
           if (source.key.startsWith("rss:") && source.url) {
             await this.plugin.runCli(
               ["toggle-feed", "--url", source.url, "--on", checkbox.checked ? "1" : "0"],
@@ -2543,18 +2560,20 @@ export class TrackerHomeView extends ItemView {
         };
       }
     }
+
+    this.renderCookies(card, status);
   }
 
-  private renderCookies(root: HTMLElement, status: StatusPayload | null) {
-    const card = root.createEl("div", { cls: "it-card" });
-    card.createEl("div", { cls: "it-section-head", text: "登录态（Cookie）" });
+  private renderCookies(host: HTMLElement, status: StatusPayload | null) {
+    const card = host.createEl("div", { cls: "it-cookie-block" });
+    card.createEl("div", { cls: "it-subhead", text: "登录态（仅需登录的来源）" });
 
     const saved = status?.cookies || {};
     const meta = status?.cookie_meta || {};
 
-    // 一键打开官方登录页，登录完再回来复制 Cookie
     const loginRow = card.createEl("div", { cls: "it-login-row" });
     for (const entry of LOGIN_ENTRIES) {
+      const logged = !!saved[entry.key];
       const button = loginRow.createEl("button", {
         text: `打开${entry.label}登录页`,
         cls: "it-mini",
@@ -2566,19 +2585,15 @@ export class TrackerHomeView extends ItemView {
           12000
         );
       };
-
-      if ((window as any).require) {
-        const auto = loginRow.createEl("button", {
-          text: `自动抓取${entry.label} Cookie`,
-          cls: "it-mini mod-cta",
-        });
-        auto.onclick = () => this.plugin.autoLogin(entry);
-      }
+      loginRow.createEl("span", {
+        cls: `it-source-badge ${logged ? "is-on" : ""}`,
+        text: logged ? "已登录" : "需登录",
+      });
     }
 
     const guide = card.createEl("div", { cls: "it-cookie-guide" });
     guide.createEl("div", {
-      text: "最省事：点「自动抓取」，在弹出的内置窗口里登录，登录成功后 Cookie 会自动保存。",
+      text: "点「打开登录页」登录，登录成功后把 Cookie 粘贴到下面。",
     });
     guide.createEl("div", {
       text: "手动方式：登录成功后按 F12 → Network → 刷新页面 → 点任意请求 → 复制请求头里的 Cookie，粘贴到下面。",
