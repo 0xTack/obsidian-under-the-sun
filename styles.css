@@ -2234,28 +2234,54 @@ h2 .it-timeline-sort b {
   color: var(--text-muted);
 }
 
-.it-sources-card summary {
+.it-sources-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   cursor: pointer;
   list-style: none;
 }
 
-.it-sources-card summary::-webkit-details-marker {
+.it-sources-summary::-webkit-details-marker {
   display: none;
 }
 
-.it-sources-card summary::before {
-  content: "▸";
-  display: inline-block;
-  width: 1em;
+.it-sources-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.it-sources-meta {
+  font-size: var(--font-ui-smaller);
   color: var(--text-muted);
-  transition: transform 0.15s ease;
 }
 
-.it-sources-card[open] summary::before {
-  transform: rotate(90deg);
+.it-sources-action {
+  margin-left: auto;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
 }
 
-.it-sources-card[open] summary {
+.it-sources-action::after {
+  content: "展开";
+}
+
+.it-sources-card[open] .it-sources-action::after {
+  content: "收起";
+}
+
+.it-sources-preview {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.it-sources-card[open] .it-sources-summary {
   margin-bottom: 10px;
 }
 

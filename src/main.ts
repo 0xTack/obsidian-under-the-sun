@@ -2481,13 +2481,31 @@ export class TrackerHomeView extends ItemView {
 
   private renderSources(root: HTMLElement, status: StatusPayload | null) {
     const card = root.createEl("details", { cls: "it-card it-sources-card" });
-    const summary = card.createEl("summary", { cls: "it-section-head" });
+    const summary = card.createEl("summary", { cls: "it-sources-summary" });
     if (!status) {
-      summary.setText("选择来源");
+      summary.createEl("span", { cls: "it-sources-title", text: "选择来源" });
       return;
     }
-    const enabled = status.sources.filter((source) => source.enabled).length;
-    summary.setText(`选择来源 · ${enabled}/${status.sources.length} 启用`);
+    const count = (list: SourceInfo[]) =>
+      `${list.filter((source) => source.enabled).length}/${list.length}`;
+    const cn = status.sources.filter((source) => source.region === "cn");
+    const intl = status.sources.filter((source) => source.region !== "cn");
+    summary.createEl("span", { cls: "it-sources-title", text: "选择来源" });
+    summary.createEl("span", {
+      cls: "it-sources-meta",
+      text: `国内 ${count(cn)} · 国外 ${count(intl)}`,
+    });
+    summary.createEl("span", { cls: "it-sources-action" });
+    const names = status.sources
+      .filter((source) => source.enabled)
+      .slice(0, 6)
+      .map((source) => source.label);
+    summary.createEl("span", {
+      cls: "it-sources-preview",
+      text: names.length
+        ? `${names.join(" · ")}${status.sources.length > names.length ? ` · 等 ${status.sources.length} 个来源` : ""}`
+        : "还没有启用来源",
+    });
 
     const grid = card.createEl("div", { cls: "it-sources" });
     const groups: Record<string, SourceInfo[]> = { cn: [], intl: [] };
