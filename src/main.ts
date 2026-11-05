@@ -6021,7 +6021,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(host)
       .setName("API Key")
-      .setDesc("只保存在这台设备，不写进笔记、不随 vault 同步；换设备需要重新填写")
+      .setDesc("Key 只留在这台设备，换设备需要重新填写；不会写进笔记，也不随笔记库同步")
       .addText((text) => {
         text.inputEl.type = "password";
         text
@@ -6107,7 +6107,7 @@ class TrackerSettingTab extends PluginSettingTab {
             settings.model = payload.model;
             if (typedKey) settings.apiKey = typedKey;
             await this.plugin.saveSettings();
-            new Notice("AI 设置已保存（Key 只留在这台设备）", 6000);
+            new Notice("已保存。Key 只留在这台设备，换设备需要重新填写。", 8000);
             await this.plugin.view?.refresh();
           })
       );
