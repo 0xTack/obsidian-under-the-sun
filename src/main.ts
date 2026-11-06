@@ -67,8 +67,8 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   aiEnabled: false,
   apiBaseUrl: "https://api.deepseek.com/v1",
   apiKey: "",
-  model: "deepseek-chat",
-  reasoningEffort: "medium",
+  model: "deepseek-flash",
+  reasoningEffort: "",
   rssFeeds: "",
   rssFeedsInitialized: false,
   rssMaxItems: 60,
@@ -183,7 +183,7 @@ const AI_PROVIDERS: AiProvider[] = [
     key: "deepseek",
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
-    models: ["deepseek-chat", "deepseek-reasoner"],
+    models: ["deepseek-flash", "deepseek-v4-pro"],
     keyUrl: "https://platform.deepseek.com/api_keys",
     note: "便宜、稳定，中文新闻理解够用。",
   },
@@ -272,9 +272,42 @@ function providerByBaseUrl(baseUrl: string): AiProvider | null {
   );
 }
 
+// DeepSeek 改过模型名：老配置里的 deepseek-chat / deepseek-reasoner 现在会 400。
+const LEGACY_DEEPSEEK_MODELS: Record<string, string> = {
+  "deepseek-chat": "deepseek-flash",
+  "deepseek-reasoner": "deepseek-v4-pro",
+};
+
+function migrateDeepSeekModel(settings: {
+  apiBaseUrl?: string;
+  model?: string;
+  reasoningEffort?: string;
+}): boolean {
+  if (!/api\.deepseek\.com/i.test(settings.apiBaseUrl || "")) return false;
+  let changed = false;
+  const current = (settings.model || "").trim().toLowerCase();
+  const mapped = LEGACY_DEEPSEEK_MODELS[current];
+  if (mapped) {
+    settings.model = mapped;
+    changed = true;
+  }
+  // DeepSeek 只认 low / high / max，老默认值 medium 会被拒
+  if ((settings.reasoningEffort || "").toLowerCase() === "medium") {
+    settings.reasoningEffort = "";
+    changed = true;
+  }
+  return changed;
+}
+
 function friendlyAiError(raw: string): string {
   const msg = (raw || "").trim();
   if (!msg) return "没有返回内容；打开主页「运行日志」看最后一行";
+  if (/402|insufficient.?balance|insufficient_quota|余额不足|欠费/i.test(msg)) {
+    return "账户余额不足，去服务商充值后再试";
+  }
+  if (/already.*(running|in progress)|task.*(running|busy)|已有任务/i.test(msg)) {
+    return "已有任务在运行，等它结束再试";
+  }
   if (/item not found/i.test(msg)) return "这条新闻不在数据库里，先刷新一次再点解读";
   if (/401|invalid.*(key|token)|unauthorized|authentication/i.test(msg)) {
     return "API Key 无效或已过期，重新复制一次再保存";
@@ -838,15 +871,16 @@ export default class InfoTrackerPlugin extends Plugin {
     return this.readMobileStatus();
   }
 
-  async saveOverrides(partial: any) {
+  async saveOverrides(partial: any): Promise<boolean> {
     if (this.isMobile()) {
       new Notice("手机端不改抓取配置；请在电脑端修改");
-      return;
+      return false;
     }
     const ok = await this.backend.saveConfig(partial);
     if (!ok) {
       new Notice("本地增强服务未连接，配置没有保存");
     }
+    return ok;
   }
 
   openBackendInstallGuide() {
@@ -898,7 +932,9 @@ export default class InfoTrackerPlugin extends Plugin {
       message = (text || "").slice(0, 200);
     }
     if (status === 401 || status === 403) return "API Key 无效或没有权限";
+    if (status === 402) return "账户余额不足，去服务商充值后再试";
     if (status === 404) return `模型不存在或地址错误${message ? "：" + message : ""}`;
+    if (status === 429) return "请求太频繁或额度用尽，等一会儿再试";
     return `HTTP ${status}${message ? "：" + message : ""}`;
   }
 
@@ -2498,6 +2534,10 @@ export default class InfoTrackerPlugin extends Plugin {
       const localKey = this.app.loadLocalStorage(MOBILE_AI_KEY);
       if (typeof localKey === "string") this.settings.apiKey = localKey;
     }
+    // 老版本的 DeepSeek 模型名已经失效，升级后自动纠正并落盘
+    if (migrateDeepSeekModel(this.settings)) {
+      await this.saveSettings();
+    }
     if (!this.settings.rssFeedsInitialized) {
       if (!(this.settings.rssFeeds || "").trim()) {
         this.settings.rssFeeds = DEFAULT_RSS_FEEDS.join("\n");
@@ -3994,7 +4034,17 @@ export class TrackerHomeView extends ItemView {
   }
 
   private renderAI(root: HTMLElement, status: StatusPayload | null) {
-    const ready = !!(status?.ai?.enabled && status?.ai?.has_key);
+    const mobile = this.plugin.isMobile();
+    // 手机端快照里的 AI 字段是故意抹掉的（避免 iCloud 同步 Key 信息），用本机设置还原
+    const ai = mobile
+      ? {
+          enabled: !!this.plugin.settings.aiEnabled,
+          has_key: !!this.plugin.settings.apiKey,
+          base_url: this.plugin.settings.apiBaseUrl,
+          model: this.plugin.settings.model,
+        }
+      : status?.ai;
+    const ready = !!(ai?.enabled && ai?.has_key);
     const card = root.createEl("details", { cls: "it-ai-status" });
     card.open = !ready;
     const head = card.createEl("summary", { cls: "it-ai-summary" });
@@ -4003,19 +4053,24 @@ export class TrackerHomeView extends ItemView {
       cls: "it-ai-purpose",
       text: "证据链研判 · 可检验判断",
     });
-    head.createEl("span", {
+    const badge = head.createEl("span", {
       cls: `it-badge ${ready ? "on" : "off"}`,
       text: ready ? "已启用" : "未启用",
     });
+    // 徽标本身就是开关，外观保持原样，只加手型光标
+    badge.style.cursor = "pointer";
+    badge.setAttr("role", "button");
+    badge.setAttr("aria-pressed", String(ready));
+    badge.setAttr("title", ready ? "点击停用 AI" : "点击启用 AI");
 
     card.createEl("p", {
       cls: "it-hint",
       text: "不是问答框。它按固定流程拆解事实、信源、矛盾、利益、反方与可证伪条件；AI 不参与排序，最终判断由你确认。",
     });
     const currentProvider =
-      providerByBaseUrl(status?.ai?.base_url || "") || AI_PROVIDERS[0];
+      providerByBaseUrl(ai?.base_url || "") || AI_PROVIDERS[0];
 
-    const guideBox = !status?.ai?.has_key
+    const guideBox = !ai?.has_key
       ? card.createEl("div", { cls: "it-ai-guide" })
       : null;
     let guideSteps: HTMLElement | null = null;
@@ -4058,7 +4113,7 @@ export class TrackerHomeView extends ItemView {
 
     const enabledRow = form.createEl("label", { cls: "it-source" });
     const enabled = enabledRow.createEl("input", { type: "checkbox" });
-    enabled.checked = !!status?.ai?.enabled;
+    enabled.checked = !!ai?.enabled;
     enabledRow.createEl("span", { text: "启用 AI（自动翻译、日报解读与追问）" });
 
     const providerRow = form.createEl("div", { cls: "it-field" });
@@ -4071,13 +4126,13 @@ export class TrackerHomeView extends ItemView {
 
     const base = form.createEl("input", { type: "text", cls: "it-input" });
     base.placeholder = "API 地址，例如 https://api.deepseek.com/v1";
-    base.value = status?.ai?.base_url || "";
+    base.value = ai?.base_url || "";
 
     const modelRow = form.createEl("div", { cls: "it-actions" });
     const modelSelect = modelRow.createEl("select", { cls: "it-input" });
     const model = form.createEl("input", { type: "text", cls: "it-input" });
     model.placeholder = "自定义模型名";
-    model.value = status?.ai?.model || "";
+    model.value = ai?.model || "";
 
     const fillModelSelect = (models: string[], current: string) => {
       modelSelect.empty();
@@ -4101,7 +4156,7 @@ export class TrackerHomeView extends ItemView {
     };
 
     const modelHint = form.createEl("div", { cls: "it-hint" });
-    const savedModel = status?.ai?.model || "";
+    const savedModel = ai?.model || "";
     const initialModels = Array.from(
       new Set([
         ...currentProvider.models,
@@ -4144,8 +4199,48 @@ export class TrackerHomeView extends ItemView {
     };
 
     const key = form.createEl("input", { type: "password", cls: "it-input" });
-    key.placeholder = status?.ai?.has_key ? "已保存（留空则不修改）" : "API Key";
+    key.placeholder = ai?.has_key ? "已保存（留空则不修改）" : "API Key";
     key.value = "";
+
+    let currentEnabled = !!ai?.enabled;
+    const paintBadge = (value: boolean) => {
+      badge.setText(value ? "已启用" : "未启用");
+      badge.toggleClass("on", value);
+      badge.toggleClass("off", !value);
+      badge.setAttr("aria-pressed", String(value));
+      badge.setAttr("title", value ? "点击停用 AI" : "点击启用 AI");
+      enabled.checked = value;
+    };
+    const toggleAi = async () => {
+      const next = !currentEnabled;
+      if (next && !(mobile ? !!this.plugin.settings.apiKey : !!ai?.has_key)) {
+        card.open = true;
+        new Notice("先填 API Key 再启用");
+        key.focus();
+        return;
+      }
+      paintBadge(next);
+      currentEnabled = next;
+      if (mobile) {
+        this.plugin.settings.aiEnabled = next;
+        await this.plugin.saveSettings();
+      } else {
+        const ok = await this.plugin.saveOverrides({ ai: { enabled: next } });
+        if (!ok) {
+          paintBadge(!next);
+          currentEnabled = !next;
+          return;
+        }
+        await this.plugin.runCli(["status"], true);
+      }
+      await this.plugin.view?.refresh();
+      new Notice(next ? "AI 已启用" : "AI 已停用，抓取不受影响");
+    };
+    badge.onclick = (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      void toggleAi();
+    };
 
     const actions = form.createEl("div", { cls: "it-actions" });
     const save = actions.createEl("button", { text: "保存", cls: "mod-cta" });
@@ -4158,8 +4253,31 @@ export class TrackerHomeView extends ItemView {
         enabledValue = true;
         enabled.checked = true;
       }
-      if (enabledValue && !typedKey && !status?.ai?.has_key) {
+      if (enabledValue && !typedKey && !ai?.has_key) {
         new Notice("启用 AI 需要先填 API Key");
+        return;
+      }
+
+      // 手机端没有本地增强服务，配置只写本机 localStorage
+      if (mobile) {
+        const settings = this.plugin.settings;
+        settings.aiEnabled = enabledValue;
+        settings.apiBaseUrl = base.value.trim() || DEFAULT_SETTINGS.apiBaseUrl;
+        settings.model = model.value.trim() || DEFAULT_SETTINGS.model;
+        if (typedKey) settings.apiKey = typedKey;
+        await this.plugin.saveSettings();
+        await this.plugin.view?.refresh();
+        if (enabledValue) {
+          const result = await this.plugin.testAiConnection(
+            settings.apiBaseUrl,
+            settings.model,
+            typedKey || settings.apiKey
+          );
+          new Notice(`已保存。${result.message}`, result.ok ? 6000 : 12000);
+          modelHint.setText(result.message);
+        } else {
+          new Notice("已保存（AI 未启用）");
+        }
         return;
       }
 
@@ -4189,7 +4307,7 @@ export class TrackerHomeView extends ItemView {
 
     const test = actions.createEl("button", { text: "测试连接" });
     test.onclick = async () => {
-      if (!key.value.trim() && !status?.ai?.has_key) {
+      if (!key.value.trim() && !ai?.has_key) {
         new Notice("请先填写 API Key");
         return;
       }
@@ -4201,7 +4319,7 @@ export class TrackerHomeView extends ItemView {
       const result = await this.plugin.testAiConnection(
         base.value,
         model.value,
-        key.value.trim()
+        key.value.trim() || (mobile ? this.plugin.settings.apiKey : "")
       );
       notice.hide();
       modelHint.setText(result.message);
@@ -5225,6 +5343,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
     const settings = this.plugin.settings;
     let key = "";
+    let aiToggle: any = null;
 
     const secM2 = this.settingSection(sections, "RSS", "来源、保留条数", false);
     new Setting(secM2)
@@ -5261,11 +5380,12 @@ class TrackerSettingTab extends PluginSettingTab {
     new Setting(secM3)
       .setName("启用 AI")
       .setDesc("AI 解读、AI 交流需要打开；抓取仍然只在电脑端")
-      .addToggle((toggle) =>
+      .addToggle((toggle) => {
+        aiToggle = toggle;
         toggle.setValue(settings.aiEnabled).onChange((value) => {
           settings.aiEnabled = value;
-        })
-      );
+        });
+      });
 
     new Setting(secM3)
       .setName("API 地址")
@@ -5284,7 +5404,7 @@ class TrackerSettingTab extends PluginSettingTab {
       .setDesc("点主页 AI 卡片的「获取模型」读取账号可用模型；也可以填任何 OpenAI 兼容模型名")
       .addText((text) =>
         text
-          .setPlaceholder("deepseek-chat")
+          .setPlaceholder("deepseek-flash")
           .setValue(settings.model)
           .onChange((value) => {
             settings.model = value.trim();
@@ -5293,12 +5413,12 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(secM3)
       .setName("推理强度")
-      .setDesc("支持推理的模型可填 low / medium / high；留空则不发送")
+      .setDesc("DeepSeek 支持 low / high / max；留空则不发送")
       .addDropdown((dropdown) => {
-        dropdown.addOption("", "默认");
+        dropdown.addOption("", "默认（不发送）");
         dropdown.addOption("low", "low");
-        dropdown.addOption("medium", "medium");
         dropdown.addOption("high", "high");
+        dropdown.addOption("max", "max");
         dropdown.setValue(settings.reasoningEffort || "");
         dropdown.onChange((value) => {
           settings.reasoningEffort = value;
@@ -5338,13 +5458,20 @@ class TrackerSettingTab extends PluginSettingTab {
           .setCta()
           .onClick(async () => {
             if (key) settings.apiKey = key;
+            // 填了 Key 但没开启用 → 自动打开，避免"填了没反应"
+            let autoEnabled = false;
+            if (settings.apiKey && !settings.aiEnabled) {
+              settings.aiEnabled = true;
+              autoEnabled = true;
+              aiToggle?.setValue(true);
+            }
             if (settings.aiEnabled && !settings.apiKey) {
               new Notice("启用 AI 需要先填 API Key");
               return;
             }
             await this.plugin.saveSettings();
             await this.plugin.view?.refresh();
-            new Notice("手机端设置已保存");
+            new Notice(autoEnabled ? "手机端设置已保存，AI 已启用" : "手机端设置已保存");
           })
       )
       .addButton((button) =>
@@ -6006,7 +6133,7 @@ class TrackerSettingTab extends PluginSettingTab {
       .addText((text) => {
         modelInput = text;
         text
-          .setPlaceholder("deepseek-chat")
+          .setPlaceholder("deepseek-flash")
           .setValue(modelValue)
           .onChange((value) => {
             modelValue = value.trim();
@@ -6027,12 +6154,12 @@ class TrackerSettingTab extends PluginSettingTab {
 
     new Setting(host)
       .setName("推理强度")
-      .setDesc("支持推理的模型可填 low / medium / high；留空则不发送")
+      .setDesc("DeepSeek 支持 low / high / max；留空则不发送")
       .addDropdown((dropdown) => {
-        dropdown.addOption("", "默认");
+        dropdown.addOption("", "默认（不发送）");
         dropdown.addOption("low", "low");
-        dropdown.addOption("medium", "medium");
         dropdown.addOption("high", "high");
+        dropdown.addOption("max", "max");
         dropdown.setValue(settings.reasoningEffort || "");
         dropdown.onChange((value) => {
           settings.reasoningEffort = value;
