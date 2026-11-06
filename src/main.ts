@@ -4058,7 +4058,7 @@ export class TrackerHomeView extends ItemView {
       text: ready ? "已启用" : "未启用",
     });
     // 徽标本身就是开关，外观保持原样，只加手型光标
-    badge.style.cursor = "pointer";
+    badge.addClass("it-badge-clickable");
     badge.setAttr("role", "button");
     badge.setAttr("aria-pressed", String(ready));
     badge.setAttr("title", ready ? "点击停用 AI" : "点击启用 AI");
@@ -6236,7 +6236,7 @@ class TrackerSettingTab extends PluginSettingTab {
 
   private renderSupport(host: HTMLElement) {
     const wrap = host.createDiv({ cls: "it-support" });
-    wrap.createEl("h3", { cls: "it-support-title", text: "支持 / Sponsor" });
+    wrap.createDiv({ cls: "it-support-title", text: "支持 / Sponsor" });
     const card = wrap.createDiv({ cls: "it-support-card" });
     const text = card.createDiv({ cls: "it-support-text" });
     text.createEl("div", { cls: "it-support-heading", text: "请作者喝杯咖啡" });

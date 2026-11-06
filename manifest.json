@@ -1,7 +1,7 @@
 {
   "id": "under-the-sun",
   "name": "Under the Sun",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "minAppVersion": "1.8.7",
   "description": "阅读 RSS 与热榜，生成可跟踪的每日日报，提供基于证据的 AI 解读，可选本地增强服务。",
   "author": "阿尔旦",

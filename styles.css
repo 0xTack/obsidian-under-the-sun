@@ -89,6 +89,10 @@
   color: var(--text-muted);
 }
 
+.it-badge-clickable {
+  cursor: pointer;
+}
+
 
 .it-sources {
   display: grid;
